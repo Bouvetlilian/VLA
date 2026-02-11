@@ -3,22 +3,7 @@
 import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-
-// ─── Type exporté ─────────────────────────────────────────────────────────────
-// Ce type sera partagé avec page.tsx et tout futur composant qui consomme des véhicules.
-
-export type Vehicle = {
-  id: number;
-  marque: string;
-  modele: string;
-  annee: number;
-  kilometrage: number;
-  prix: number;
-  carburant: "Essence" | "Diesel" | "Hybride" | "Électrique";
-  boite: "Manuelle" | "Automatique";
-  image: string;
-  badge?: string; // ex: "Nouveau", "Coup de cœur", "Premium"
-};
+import { type Vehicle } from "@/lib/data";
 
 // ─── Composant ────────────────────────────────────────────────────────────────
 
@@ -49,7 +34,7 @@ export default function VehicleCard({
       {/* ── Image ── */}
       <div className="relative h-52 overflow-hidden bg-gray-100">
         <Image
-          src={vehicle.image}
+          src={vehicle.images[0]}
           alt={`${vehicle.marque} ${vehicle.modele}`}
           fill
           className="object-cover"

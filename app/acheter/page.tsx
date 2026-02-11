@@ -2,125 +2,22 @@
 
 import { useState, useMemo } from "react";
 
-// ─── Imports composants ───────────────────────────────────────────────────────
+// ─── Imports composants & données ────────────────────────────────────────────
 
-import VehicleCard, { type Vehicle } from "@/components/VehicleCard";
+import VehicleCard from "@/components/VehicleCard";
+import {
+  VEHICLES,
+  MARQUES_OPTIONS,
+  MODELES_MAP,
+  ANNEES_OPTIONS,
+  PRIX_MAX,
+  type Vehicle,
+} from "@/lib/data";
 
-// ─── Données mock ─────────────────────────────────────────────────────────────
+// ─── Constantes locales (options de filtres propres à cette page) ─────────────
 
-const VEHICLES: Vehicle[] = [
-  {
-    id: 1,
-    marque: "Peugeot",
-    modele: "308",
-    annee: 2023,
-    kilometrage: 18000,
-    prix: 22900,
-    carburant: "Essence",
-    boite: "Automatique",
-    image: "/images/hero-bg.jpg",
-    badge: "Coup de cœur",
-  },
-  {
-    id: 2,
-    marque: "Renault",
-    modele: "Scénic",
-    annee: 2022,
-    kilometrage: 34500,
-    prix: 19500,
-    carburant: "Diesel",
-    boite: "Manuelle",
-    image: "/images/cta-bg.jpg",
-  },
-  {
-    id: 3,
-    marque: "Toyota",
-    modele: "Yaris",
-    annee: 2024,
-    kilometrage: 4200,
-    prix: 26400,
-    carburant: "Hybride",
-    boite: "Automatique",
-    image: "/images/hero-bg.jpg",
-    badge: "Nouveau",
-  },
-  {
-    id: 4,
-    marque: "Ford",
-    modele: "Kuga",
-    annee: 2023,
-    kilometrage: 22000,
-    prix: 31900,
-    carburant: "Hybride",
-    boite: "Automatique",
-    image: "/images/cta-bg.jpg",
-  },
-  {
-    id: 5,
-    marque: "Volkswagen",
-    modele: "Golf",
-    annee: 2021,
-    kilometrage: 51000,
-    prix: 17800,
-    carburant: "Essence",
-    boite: "Manuelle",
-    image: "/images/hero-bg.jpg",
-  },
-  {
-    id: 6,
-    marque: "BMW",
-    modele: "Série 3",
-    annee: 2022,
-    kilometrage: 38000,
-    prix: 38500,
-    carburant: "Diesel",
-    boite: "Automatique",
-    image: "/images/cta-bg.jpg",
-    badge: "Premium",
-  },
-  {
-    id: 7,
-    marque: "Citroën",
-    modele: "C5 X",
-    annee: 2023,
-    kilometrage: 14000,
-    prix: 28900,
-    carburant: "Hybride",
-    boite: "Automatique",
-    image: "/images/hero-bg.jpg",
-  },
-  {
-    id: 8,
-    marque: "Tesla",
-    modele: "Model 3",
-    annee: 2023,
-    kilometrage: 9800,
-    prix: 42000,
-    carburant: "Électrique",
-    boite: "Automatique",
-    image: "/images/cta-bg.jpg",
-    badge: "Nouveau",
-  },
-  {
-    id: 9,
-    marque: "Renault",
-    modele: "Clio",
-    annee: 2021,
-    kilometrage: 62000,
-    prix: 13900,
-    carburant: "Essence",
-    boite: "Manuelle",
-    image: "/images/hero-bg.jpg",
-  },
-];
-
-const MARQUES = ["Toutes", ...Array.from(new Set(VEHICLES.map((v) => v.marque))).sort()];
-const MODELES_MAP = VEHICLES.reduce<Record<string, string[]>>((acc, v) => {
-  if (!acc[v.marque]) acc[v.marque] = [];
-  if (!acc[v.marque].includes(v.modele)) acc[v.marque].push(v.modele);
-  return acc;
-}, {});
-const ANNEES = ["Toutes", ...Array.from(new Set(VEHICLES.map((v) => String(v.annee)))).sort((a, b) => Number(b) - Number(a))];
+const MARQUES = MARQUES_OPTIONS;
+const ANNEES = ANNEES_OPTIONS;
 const CARBURANTS = ["Tous", "Essence", "Diesel", "Hybride", "Électrique"];
 const BOITES = ["Toutes", "Manuelle", "Automatique"];
 const KM_MAX_OPTIONS = [
@@ -130,7 +27,6 @@ const KM_MAX_OPTIONS = [
   { label: "< 50 000 km", value: 50000 },
   { label: "< 100 000 km", value: 100000 },
 ];
-const PRIX_MAX = 50000;
 
 // ─── Composant Select stylisé ─────────────────────────────────────────────────
 
