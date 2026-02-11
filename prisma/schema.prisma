@@ -1,0 +1,268 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// VL Automobiles — Prisma Schema
+// PostgreSQL via Supabase
+// ─────────────────────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADMIN — Gestion des administrateurs avec 2FA
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Admin {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String
+  password      String    // Hashé avec bcrypt
+  role          AdminRole @default(ADMIN)
+
+  // 2FA (TOTP — Google Authenticator)
+  twoFactorEnabled Boolean @default(false)
+  twoFactorSecret  String? // Secret TOTP chiffré (AES-256)
+
+  // NextAuth — Sessions
+  sessions      AdminSession[]
+
+  // Audit trail
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastLoginAt   DateTime?
+  isActive      Boolean   @default(true)
+
+  @@map("admins")
+}
+
+model AdminSession {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  adminId      String
+  admin        Admin    @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  expires      DateTime
+  createdAt    DateTime @default(now())
+
+  @@map("admin_sessions")
+}
+
+enum AdminRole {
+  SUPER_ADMIN // Peut gérer les autres admins
+  ADMIN       // Accès complet au catalogue + leads
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// VEHICLE — Catalogue d'annonces
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Vehicle {
+  id          Int           @id @default(autoincrement())
+  slug        String        @unique // URL friendly : "bmw-serie-3-2022"
+
+  // Identité
+  marque      String
+  modele      String
+  annee       Int
+  version     String?       // Ex : "320d xDrive Sport"
+
+  // Caractéristiques
+  kilometrage Int
+  prix        Int
+  carburant   Carburant
+  boite       Boite
+  puissance   String        // Ex : "184 ch"
+  couleur     String
+  portes      Int
+  places      Int
+
+  // Contenu
+  description String        @db.Text
+  options     String[]      // Array PostgreSQL natif
+
+  // Statut
+  status      VehicleStatus @default(DRAFT)
+  badge       String?       // Ex : "Nouveau", "Coup de cœur"
+  featured    Boolean       @default(false)
+
+  // Images (stockées sur Cloudinary / Vercel Blob)
+  images      VehicleImage[]
+
+  // Relations leads
+  buyLeads    BuyLead[]
+
+  // Audit
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  publishedAt DateTime?
+
+  // Index pour les recherches fréquentes
+  @@index([status])
+  @@index([marque])
+  @@index([prix])
+  @@index([kilometrage])
+  @@map("vehicles")
+}
+
+model VehicleImage {
+  id         String   @id @default(cuid())
+  vehicleId  Int
+  vehicle    Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  url        String   // URL Cloudinary / Vercel Blob
+  publicId   String?  // ID Cloudinary pour suppression
+  alt        String?
+  position   Int      @default(0) // Ordre d'affichage
+  isMain     Boolean  @default(false)
+
+  createdAt  DateTime @default(now())
+
+  @@index([vehicleId])
+  @@map("vehicle_images")
+}
+
+enum VehicleStatus {
+  DRAFT       // Brouillon — non visible sur le site
+  PUBLISHED   // Visible sur le catalogue
+  SOLD        // Vendu — archivé
+  RESERVED    // Réservé
+}
+
+enum Carburant {
+  ESSENCE
+  DIESEL
+  HYBRIDE
+  HYBRIDE_RECHARGEABLE
+  ELECTRIQUE
+  GPL
+}
+
+enum Boite {
+  MANUELLE
+  AUTOMATIQUE
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BUY LEAD — Demandes d'achat (depuis fiche véhicule)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model BuyLead {
+  id         String     @id @default(cuid())
+
+  // Véhicule concerné
+  vehicleId  Int
+  vehicle    Vehicle    @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+
+  // Coordonnées prospect
+  prenom     String
+  telephone  String
+  message    String?    @db.Text
+
+  // Traitement
+  status     LeadStatus @default(NEW)
+  notes      String?    @db.Text // Notes internes admin
+  assignedTo String?    // ID admin assigné
+
+  // Notification
+  emailSentAt DateTime? // Date d'envoi de la notif email admin
+
+  // Audit
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+  treatedAt  DateTime?  // Date de traitement
+
+  @@index([status])
+  @@index([vehicleId])
+  @@index([createdAt])
+  @@map("buy_leads")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SELL LEAD — Demandes de rachat (formulaire 3 étapes)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model SellLead {
+  id         String     @id @default(cuid())
+
+  // ── Étape 1 : Infos véhicule ──
+  marque     String
+  modele     String
+  annee      Int
+  kilometrage Int
+  carburant  String
+  boite      String
+
+  // ── Étape 2 : État du véhicule ──
+  etat       String     // "Excellent", "Bon", "Correct", "À rénover"
+  carnet     String     // "Complet", "Incomplet", "Absent", "Non applicable"
+  accident   String     // "Aucun accident", "Accident(s) réparé(s)", "Je ne sais pas"
+  commentaire String?   @db.Text
+  photos     SellLeadPhoto[]
+
+  // ── Étape 3 : Coordonnées ──
+  prenom     String
+  nom        String
+  email      String
+  telephone  String
+
+  // Traitement
+  status     LeadStatus @default(NEW)
+  notes      String?    @db.Text
+  assignedTo String?    // ID admin assigné
+  estimation String?    // Fourchette de prix proposée par l'admin
+
+  // Notification
+  emailSentAt DateTime?
+
+  // Audit
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+  treatedAt  DateTime?
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("sell_leads")
+}
+
+model SellLeadPhoto {
+  id         String   @id @default(cuid())
+  sellLeadId String
+  sellLead   SellLead @relation(fields: [sellLeadId], references: [id], onDelete: Cascade)
+
+  url        String
+  publicId   String?
+
+  createdAt  DateTime @default(now())
+
+  @@map("sell_lead_photos")
+}
+
+enum LeadStatus {
+  NEW         // Nouveau — non lu
+  IN_PROGRESS // En cours de traitement
+  TREATED     // Traité
+  ARCHIVED    // Archivé
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NOTIFICATION LOG — Traçabilité des emails envoyés
+// ─────────────────────────────────────────────────────────────────────────────
+
+model NotificationLog {
+  id         String   @id @default(cuid())
+  type       String   // "new_buy_lead", "new_sell_lead"
+  recipient  String   // Email du destinataire
+  subject    String
+  status     String   // "sent", "failed"
+  error      String?  // Message d'erreur si échec
+  refId      String?  // ID du lead concerné
+  createdAt  DateTime @default(now())
+
+  @@index([type])
+  @@index([createdAt])
+  @@map("notification_logs")
+}

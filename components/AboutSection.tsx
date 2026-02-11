@@ -54,11 +54,11 @@ export default function AboutSection() {
               </p>
 
               <p>
-                Fort de plus de 10 ans d'expérience dans le secteur automobile,
-                Valentin a construit son expertise au sein d'une concession
+                Fort de plus de 10 ans d&apos;expérience dans le secteur automobile,
+                Valentin a construit son expertise au sein d&apos;une concession
                 Peugeot, où il a accompagné des centaines de clients dans leurs
-                projets d'achat et de vente. Son expérience lui permet
-                aujourd'hui de sélectionner rigoureusement chaque véhicule et de
+                projets d&apos;achat et de vente. Son expérience lui permet
+                aujourd&apos;hui de sélectionner rigoureusement chaque véhicule et de
                 négocier les meilleures opportunités pour ses clients.
               </p>
 

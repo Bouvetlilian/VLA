@@ -241,7 +241,7 @@ export default function AcheterPage() {
           <div className="text-center py-24">
             <div className="text-6xl mb-4">🔍</div>
             <h3 className="font-black text-2xl text-vla-black mb-2">Aucun véhicule trouvé</h3>
-            <p className="text-gray-400 font-semibold mb-6">Essayez d'élargir vos critères de recherche</p>
+            <p className="text-gray-400 font-semibold mb-6">Essayez d&apos;élargir vos critères de recherche</p>
             <button
               onClick={resetFilters}
               className="bg-vla-orange text-white px-8 py-3 rounded-full font-bold hover:bg-opacity-90 transition-all"
