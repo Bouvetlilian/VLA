@@ -1,22 +1,19 @@
 // middleware.ts
 // ─────────────────────────────────────────────────────────────────────────────
-// Middleware Next.js — Version simplifiée sans NextAuth auth()
+// Middleware Next.js — Protection des routes /admin avec JWT custom
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { getToken } from "next-auth/jwt";
+import { verifyToken } from "@/lib/jwt";
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Si la route commence par /admin (sauf /admin/login)
   if (pathname.startsWith("/admin") && pathname !== "/admin/login") {
-    // Récupérer le token JWT
-    const token = await getToken({
-      req: request,
-      secret: process.env.NEXTAUTH_SECRET,
-    });
+    // Récupérer le cookie de session
+    const token = request.cookies.get("vla_admin_session")?.value;
 
     // Si pas de token = pas authentifié
     if (!token) {
@@ -25,8 +22,18 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(loginUrl);
     }
 
+    // Vérifier le token
+    const session = await verifyToken(token);
+
+    if (!session) {
+      // Token invalide ou expiré
+      const loginUrl = new URL("/admin/login", request.url);
+      loginUrl.searchParams.set("callbackUrl", pathname);
+      return NextResponse.redirect(loginUrl);
+    }
+
     // Si 2FA activé mais pas vérifié
-    if (token.twoFactorEnabled && !token.twoFactorVerified) {
+    if (session.twoFactorEnabled && !session.twoFactorVerified) {
       return NextResponse.redirect(new URL("/admin/login", request.url));
     }
   }
@@ -36,6 +43,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!api(?!/admin)|_next/static|_next/image|favicon.ico|images/).*)",
+    "/((?!api|_next/static|_next/image|favicon.ico|images/).*)",
   ],
 };

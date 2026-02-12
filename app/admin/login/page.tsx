@@ -2,12 +2,10 @@
 
 // app/admin/login/page.tsx
 // ─────────────────────────────────────────────────────────────────────────────
-// Page de connexion admin avec support 2FA
-// Design minimaliste selon la charte VLA
+// Page de connexion admin — Version custom sans NextAuth
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, FormEvent } from "react";
-import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 
@@ -33,31 +31,35 @@ export default function AdminLoginPage() {
     setIsLoading(true);
 
     try {
-      const result = await signIn("credentials", {
-        email,
-        password,
-        totpCode: showTotpInput ? totpCode : undefined,
-        redirect: false,
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email,
+          password,
+          totpCode: showTotpInput ? totpCode : undefined,
+        }),
       });
 
-      if (result?.error) {
-        // Si erreur = besoin du code 2FA
-        if (result.error === "CredentialsSignin" && !showTotpInput) {
-          setShowTotpInput(true);
-          setError("");
-        } else {
-          setError(
-            showTotpInput
-              ? "Code 2FA invalide"
-              : "Email ou mot de passe incorrect"
-          );
-        }
+      const data = await response.json();
+
+      if (!response.ok) {
+        setError(data.error || "Une erreur est survenue");
+        setIsLoading(false);
+        return;
+      }
+
+      // Si 2FA requis
+      if (data.requires2FA) {
+        setShowTotpInput(true);
         setIsLoading(false);
         return;
       }
 
       // Connexion réussie
-      if (result?.ok) {
+      if (data.success) {
         router.push(callbackUrl);
         router.refresh();
       }
@@ -76,7 +78,7 @@ export default function AdminLoginPage() {
         <div className="text-center mb-8">
           <div className="inline-block relative w-32 h-32 mb-4">
             <Image
-              src="/images/logo_vla.png"
+              src="/images/logo.png"
               alt="VL Automobiles"
               fill
               className="object-contain"
