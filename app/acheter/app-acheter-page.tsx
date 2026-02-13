@@ -1,24 +1,29 @@
 "use client";
 
-import { useState, useMemo } from "react";
-
-// ─── Imports composants & données ────────────────────────────────────────────
-
+import { useState, useMemo, useEffect } from "react";
 import VehicleCard from "@/components/VehicleCard";
-import {
-  VEHICLES,
-  MARQUES_OPTIONS,
-  MODELES_MAP,
-  ANNEES_OPTIONS,
-  PRIX_MAX,
-  type Vehicle,
-} from "@/lib/data";
+import { fetchVehicles } from "@/lib/utils/api-client";
 
-// ─── Constantes locales (options de filtres propres à cette page) ─────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-const MARQUES = MARQUES_OPTIONS;
-const ANNEES = ANNEES_OPTIONS;
-const CARBURANTS = ["Tous", "Essence", "Diesel", "Hybride", "Électrique"];
+type Vehicle = {
+  id: number;
+  slug: string;
+  marque: string;
+  modele: string;
+  annee: number;
+  kilometrage: number;
+  prix: number;
+  carburant: string;
+  boite: string;
+  badge: string | null;
+  featured: boolean;
+  images: Array<{ url: string; alt: string | null }>;
+};
+
+// ─── Constantes locales (options de filtres) ──────────────────────────────────
+
+const CARBURANTS = ["Tous", "Essence", "Diesel", "Hybride", "Hybride rechargeable", "Électrique", "GPL"];
 const BOITES = ["Toutes", "Manuelle", "Automatique"];
 const KM_MAX_OPTIONS = [
   { label: "Pas de limite", value: 999999 },
@@ -27,6 +32,7 @@ const KM_MAX_OPTIONS = [
   { label: "< 50 000 km", value: 50000 },
   { label: "< 100 000 km", value: 100000 },
 ];
+const PRIX_MAX = 50000;
 
 // ─── Composant Select stylisé ─────────────────────────────────────────────────
 
@@ -72,6 +78,12 @@ function Select({
 // ─── Page principale ──────────────────────────────────────────────────────────
 
 export default function AcheterPage() {
+  // États pour les véhicules
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // États pour les filtres
   const [marque, setMarque] = useState("Toutes");
   const [modele, setModele] = useState("Tous");
   const [annee, setAnnee] = useState("Toutes");
@@ -80,31 +92,59 @@ export default function AcheterPage() {
   const [kmMax, setKmMax] = useState(999999);
   const [prixMax, setPrixMax] = useState(PRIX_MAX);
 
-  // Modèles disponibles selon la marque sélectionnée
-  const modelesDisponibles = useMemo(() => {
+  // Charger les véhicules au montage
+  useEffect(() => {
+    async function loadVehicles() {
+      setLoading(true);
+      setError(null);
+
+      const result = await fetchVehicles({
+        marque: marque !== "Toutes" ? marque : undefined,
+        modele: modele !== "Tous" ? modele : undefined,
+        annee: annee !== "Toutes" ? annee : undefined,
+        carburant: carburant !== "Tous" ? carburant : undefined,
+        boite: boite !== "Toutes" ? boite : undefined,
+        kmMax: kmMax !== 999999 ? kmMax : undefined,
+        prixMax: prixMax !== PRIX_MAX ? prixMax : undefined,
+      });
+
+      if (result.success) {
+        setVehicles(result.data.vehicles);
+      } else {
+        setError(result.error);
+      }
+
+      setLoading(false);
+    }
+
+    loadVehicles();
+  }, [marque, modele, annee, carburant, boite, kmMax, prixMax]);
+
+  // Calculer les options disponibles depuis les véhicules
+  const marques = useMemo(() => {
+    const uniqueMarques = Array.from(new Set(vehicles.map((v) => v.marque))).sort();
+    return ["Toutes", ...uniqueMarques];
+  }, [vehicles]);
+
+  const modeles = useMemo(() => {
     if (marque === "Toutes") return ["Tous"];
-    return ["Tous", ...(MODELES_MAP[marque] || [])];
-  }, [marque]);
+    const filtered = vehicles.filter((v) => v.marque === marque);
+    const uniqueModeles = Array.from(new Set(filtered.map((v) => v.modele))).sort();
+    return ["Tous", ...uniqueModeles];
+  }, [vehicles, marque]);
+
+  const annees = useMemo(() => {
+    const uniqueAnnees = Array.from(new Set(vehicles.map((v) => String(v.annee)))).sort(
+      (a, b) => Number(b) - Number(a)
+    );
+    return ["Toutes", ...uniqueAnnees];
+  }, [vehicles]);
 
   // Quand on change de marque, on reset le modèle
   const handleMarqueChange = (v: string) => {
     setMarque(v);
     setModele("Tous");
   };
-
-  // Filtrage
-  const filtered = useMemo(() => {
-    return VEHICLES.filter((v) => {
-      if (marque !== "Toutes" && v.marque !== marque) return false;
-      if (modele !== "Tous" && v.modele !== modele) return false;
-      if (annee !== "Toutes" && v.annee !== Number(annee)) return false;
-      if (carburant !== "Tous" && v.carburant !== carburant) return false;
-      if (boite !== "Toutes" && v.boite !== boite) return false;
-      if (v.kilometrage > kmMax) return false;
-      if (v.prix > prixMax) return false;
-      return true;
-    });
-  }, [marque, modele, annee, carburant, boite, kmMax, prixMax]);
 
   const resetFilters = () => {
     setMarque("Toutes");
@@ -133,7 +173,7 @@ export default function AcheterPage() {
           <span className="text-vla-orange">véhicule idéal</span>
         </h1>
         <p className="text-base md:text-lg text-gray-500 font-semibold">
-          {VEHICLES.length} véhicules sélectionnés par nos experts
+          {loading ? "Chargement..." : `${vehicles.length} véhicule${vehicles.length > 1 ? "s" : ""} disponible${vehicles.length > 1 ? "s" : ""}`}
         </p>
       </div>
 
@@ -148,9 +188,9 @@ export default function AcheterPage() {
         >
           {/* Grille de selects */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
-            <Select label="Marque" value={marque} options={MARQUES} onChange={handleMarqueChange} />
-            <Select label="Modèle" value={modele} options={modelesDisponibles} onChange={setModele} />
-            <Select label="Année" value={annee} options={ANNEES} onChange={setAnnee} />
+            <Select label="Marque" value={marque} options={marques} onChange={handleMarqueChange} />
+            <Select label="Modèle" value={modele} options={modeles} onChange={setModele} />
+            <Select label="Année" value={annee} options={annees} onChange={setAnnee} />
             <Select label="Carburant" value={carburant} options={CARBURANTS} onChange={setCarburant} />
             <Select label="Boîte" value={boite} options={BOITES} onChange={setBoite} />
             <Select
@@ -216,8 +256,14 @@ export default function AcheterPage() {
           {/* Footer filtres */}
           <div className="flex items-center justify-between mt-5 pt-4 border-t border-gray-100">
             <p className="text-sm font-bold text-gray-400">
-              <span className="text-vla-black font-black">{filtered.length}</span>{" "}
-              {filtered.length > 1 ? "véhicules trouvés" : "véhicule trouvé"}
+              {loading ? (
+                "Chargement..."
+              ) : (
+                <>
+                  <span className="text-vla-black font-black">{vehicles.length}</span>{" "}
+                  {vehicles.length > 1 ? "véhicules trouvés" : "véhicule trouvé"}
+                </>
+              )}
             </p>
             {hasActiveFilters && (
               <button
@@ -237,7 +283,24 @@ export default function AcheterPage() {
 
       {/* Grille annonces */}
       <div className="px-6 md:px-12 pb-20 max-w-7xl mx-auto">
-        {filtered.length === 0 ? (
+        {error ? (
+          <div className="text-center py-24">
+            <div className="text-6xl mb-4">⚠️</div>
+            <h3 className="font-black text-2xl text-vla-black mb-2">Erreur de chargement</h3>
+            <p className="text-gray-400 font-semibold mb-6">{error}</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="bg-vla-orange text-white px-8 py-3 rounded-full font-bold hover:bg-opacity-90 transition-all"
+            >
+              Réessayer
+            </button>
+          </div>
+        ) : loading ? (
+          <div className="text-center py-24">
+            <div className="animate-spin w-12 h-12 border-4 border-vla-orange border-t-transparent rounded-full mx-auto mb-4"></div>
+            <p className="text-gray-400 font-semibold">Chargement des véhicules...</p>
+          </div>
+        ) : vehicles.length === 0 ? (
           <div className="text-center py-24">
             <div className="text-6xl mb-4">🔍</div>
             <h3 className="font-black text-2xl text-vla-black mb-2">Aucun véhicule trouvé</h3>
@@ -251,7 +314,7 @@ export default function AcheterPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filtered.map((vehicle, index) => (
+            {vehicles.map((vehicle, index) => (
               <VehicleCard key={vehicle.id} vehicle={vehicle} index={index} />
             ))}
           </div>
