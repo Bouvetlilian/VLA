@@ -1,11 +1,13 @@
 "use client";
-
 // app/admin/login/page.tsx
 // ─────────────────────────────────────────────────────────────────────────────
-// Page de connexion admin — Version custom sans NextAuth
+// Page de connexion administrateur VL Automobiles
+// Formulaire email/password + 2FA si activé
+// Design minimaliste dans la charte graphique VLA
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useState, FormEvent } from "react";
+import { useState } from "react";
+import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 
@@ -14,213 +16,181 @@ export default function AdminLoginPage() {
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl") || "/admin";
 
-  // ── États ─────────────────────────────────────────────────────────────────
-
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [totpCode, setTotpCode] = useState("");
-  const [showTotpInput, setShowTotpInput] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [token2FA, setToken2FA] = useState("");
+  const [needs2FA, setNeeds2FA] = useState(false);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  // ── Soumission du formulaire ──────────────────────────────────────────────
-
-  const handleSubmit = async (e: FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    setIsLoading(true);
+    setLoading(true);
 
     try {
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          email,
-          password,
-          totpCode: showTotpInput ? totpCode : undefined,
-        }),
+      const result = await signIn("credentials", {
+        email,
+        password,
+        token2FA: needs2FA ? token2FA : undefined,
+        redirect: false,
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        setError(data.error || "Une erreur est survenue");
-        setIsLoading(false);
-        return;
-      }
-
-      // Si 2FA requis
-      if (data.requires2FA) {
-        setShowTotpInput(true);
-        setIsLoading(false);
-        return;
-      }
-
-      // Connexion réussie
-      if (data.success) {
+      if (result?.error) {
+        // Si l'erreur est "2FA_REQUIRED", on affiche le champ 2FA
+        if (result.error === "2FA_REQUIRED") {
+          setNeeds2FA(true);
+          setError("");
+        } else {
+          setError(result.error);
+        }
+      } else {
+        // Connexion réussie
         router.push(callbackUrl);
         router.refresh();
       }
     } catch (err) {
       setError("Une erreur est survenue");
-      setIsLoading(false);
+    } finally {
+      setLoading(false);
     }
   };
 
-  // ── Rendu ─────────────────────────────────────────────────────────────────
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-vla-beige via-white to-vla-beige flex items-center justify-center px-4 py-8">
+    <div className="min-h-screen bg-vla-beige flex items-center justify-center px-6 py-12">
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-block relative w-32 h-32 mb-4">
-            <Image
-              src="/images/logo.png"
-              alt="VL Automobiles"
-              fill
-              className="object-contain"
-              priority
-            />
+          <div className="inline-block">
+            <h1 className="font-black text-3xl text-vla-black mb-1">
+              VL Automobiles
+            </h1>
+            <p className="text-sm font-semibold text-gray-400 uppercase tracking-widest">
+              Back Office
+            </p>
           </div>
-          <h1 className="text-2xl font-black text-vla-black tracking-tight">
-            Espace administrateur
-          </h1>
-          <p className="text-sm text-gray-600 mt-2">
-            Connectez-vous pour accéder au back office
-          </p>
         </div>
 
-        {/* Formulaire */}
-        <div className="bg-white rounded-2xl shadow-xl border-2 border-gray-100 p-8">
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Email */}
-            <div>
-              <label
-                htmlFor="email"
-                className="block text-xs font-black uppercase tracking-widest text-vla-orange mb-2"
-              >
-                Email
-              </label>
-              <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                disabled={showTotpInput}
-                required
-                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-vla-orange focus:outline-none transition-colors disabled:bg-gray-50 disabled:cursor-not-allowed"
-                placeholder="admin@vl-automobiles.fr"
-              />
-            </div>
+        {/* Card de connexion */}
+        <div
+          className="bg-white rounded-2xl p-8 shadow-xl"
+          style={{ boxShadow: "0 8px 40px rgba(0,0,0,0.08)" }}
+        >
+          <h2 className="font-black text-2xl text-vla-black mb-6">
+            {needs2FA ? "Code d'authentification" : "Connexion"}
+          </h2>
 
-            {/* Mot de passe */}
-            <div>
-              <label
-                htmlFor="password"
-                className="block text-xs font-black uppercase tracking-widest text-vla-orange mb-2"
-              >
-                Mot de passe
-              </label>
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                disabled={showTotpInput}
-                required
-                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-vla-orange focus:outline-none transition-colors disabled:bg-gray-50 disabled:cursor-not-allowed"
-                placeholder="••••••••"
-              />
+          {error && (
+            <div
+              className="mb-6 p-4 rounded-xl bg-red-50 border-2 border-red-200"
+            >
+              <p className="text-sm font-bold text-red-600">{error}</p>
             </div>
+          )}
 
-            {/* Code 2FA (affiché uniquement si nécessaire) */}
-            {showTotpInput && (
-              <div className="pt-4 border-t-2 border-gray-100">
-                <div className="bg-vla-beige/30 rounded-xl p-4 mb-4">
-                  <p className="text-xs font-semibold text-gray-700 text-center">
-                    🔐 Double authentification activée
-                  </p>
-                  <p className="text-xs text-gray-600 text-center mt-1">
-                    Ouvrez votre application d'authentification
+          <form onSubmit={handleSubmit} className="space-y-5">
+            {!needs2FA ? (
+              <>
+                {/* Email */}
+                <div>
+                  <label className="block text-xs font-black uppercase tracking-widest text-vla-orange mb-2">
+                    Email
+                  </label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    autoComplete="email"
+                    placeholder="admin@vl-automobiles.fr"
+                    className="w-full bg-vla-beige border-2 border-transparent rounded-xl px-4 py-3 text-sm font-semibold text-vla-black placeholder-gray-400 outline-none focus:border-vla-orange transition-all"
+                    style={{ boxShadow: "inset 0 2px 6px rgba(0,0,0,0.04)" }}
+                  />
+                </div>
+
+                {/* Mot de passe */}
+                <div>
+                  <label className="block text-xs font-black uppercase tracking-widest text-vla-orange mb-2">
+                    Mot de passe
+                  </label>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    autoComplete="current-password"
+                    placeholder="••••••••"
+                    className="w-full bg-vla-beige border-2 border-transparent rounded-xl px-4 py-3 text-sm font-semibold text-vla-black placeholder-gray-400 outline-none focus:border-vla-orange transition-all"
+                    style={{ boxShadow: "inset 0 2px 6px rgba(0,0,0,0.04)" }}
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Code 2FA */}
+                <div>
+                  <label className="block text-xs font-black uppercase tracking-widest text-vla-orange mb-2">
+                    Code à 6 chiffres
+                  </label>
+                  <input
+                    type="text"
+                    value={token2FA}
+                    onChange={(e) => setToken2FA(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    required
+                    autoComplete="one-time-code"
+                    placeholder="123456"
+                    maxLength={6}
+                    className="w-full bg-vla-beige border-2 border-transparent rounded-xl px-4 py-3 text-center text-2xl font-black text-vla-black placeholder-gray-400 outline-none focus:border-vla-orange transition-all tracking-widest"
+                    style={{ boxShadow: "inset 0 2px 6px rgba(0,0,0,0.04)" }}
+                  />
+                  <p className="text-xs text-gray-400 font-semibold mt-2 text-center">
+                    Ouvrez votre application Google Authenticator
                   </p>
                 </div>
 
-                <label
-                  htmlFor="totpCode"
-                  className="block text-xs font-black uppercase tracking-widest text-vla-orange mb-2"
-                >
-                  Code 2FA
-                </label>
-                <input
-                  id="totpCode"
-                  type="text"
-                  value={totpCode}
-                  onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, ""))}
-                  maxLength={6}
-                  required
-                  autoFocus
-                  className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-vla-orange focus:outline-none transition-colors text-center text-2xl font-mono tracking-widest"
-                  placeholder="000000"
-                />
-
+                {/* Bouton retour */}
                 <button
                   type="button"
                   onClick={() => {
-                    setShowTotpInput(false);
-                    setTotpCode("");
+                    setNeeds2FA(false);
+                    setToken2FA("");
                     setError("");
                   }}
-                  className="w-full mt-3 text-xs text-gray-600 hover:text-vla-orange transition-colors"
+                  className="w-full text-sm font-bold text-gray-400 hover:text-vla-orange transition-colors"
                 >
                   ← Retour
                 </button>
-              </div>
-            )}
-
-            {/* Message d'erreur */}
-            {error && (
-              <div className="bg-red-50 border-2 border-red-200 rounded-xl p-3">
-                <p className="text-sm font-semibold text-red-700 text-center">
-                  {error}
-                </p>
-              </div>
+              </>
             )}
 
             {/* Bouton de connexion */}
             <button
               type="submit"
-              disabled={isLoading}
-              className="w-full bg-vla-orange hover:bg-orange-600 text-white font-black py-4 rounded-xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wide text-sm shadow-lg hover:shadow-xl"
+              disabled={loading}
+              className="w-full py-3.5 rounded-xl font-black text-white text-sm transition-all duration-200 mt-6"
+              style={{
+                background: loading ? "#e5e7eb" : "#FF8633",
+                cursor: loading ? "not-allowed" : "pointer",
+                boxShadow: loading ? "none" : "0 4px 20px rgba(255,134,51,0.3)",
+              }}
             >
-              {isLoading ? (
+              {loading ? (
                 <span className="flex items-center justify-center gap-2">
                   <svg
-                    className="animate-spin h-5 w-5"
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
+                    className="animate-spin"
+                    width="16"
+                    height="16"
                     viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
                   >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                    ></circle>
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                    ></path>
+                    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                   </svg>
                   Connexion...
                 </span>
-              ) : showTotpInput ? (
-                "Valider le code 2FA"
+              ) : needs2FA ? (
+                "Valider le code"
               ) : (
                 "Se connecter"
               )}
@@ -228,11 +198,9 @@ export default function AdminLoginPage() {
           </form>
         </div>
 
-        {/* Note de sécurité */}
-        <p className="text-xs text-gray-500 text-center mt-6">
-          Cette zone est réservée aux administrateurs de VL Automobiles.
-          <br />
-          Toutes les tentatives de connexion sont enregistrées.
+        {/* Footer */}
+        <p className="text-center text-xs text-gray-400 font-semibold mt-6">
+          VL Automobiles © {new Date().getFullYear()} — Espace réservé aux administrateurs
         </p>
       </div>
     </div>
