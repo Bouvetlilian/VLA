@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
 import { createVehicleSchema, vehicleFiltersSchema } from "@/lib/validations/vehicle";
+import { uploadImage, isCloudinaryConfigured } from "@/lib/upload/cloudinary";
 
 /**
  * GET /api/admin/vehicles
@@ -121,22 +122,69 @@ export async function GET(request: NextRequest) {
 
 /**
  * POST /api/admin/vehicles
- * Crée un nouveau véhicule
+ * Crée un nouveau véhicule avec upload d'images sur Cloudinary
  * Authentification requise
  * 
- * Note: Pour l'instant, les images doivent être uploadées séparément
- * L'upload Cloudinary sera implémenté à l'étape 6
+ * Accepte FormData avec :
+ * - Champs du véhicule (marque, modele, annee, etc.)
+ * - Images (field "images", multiple files)
  */
 export async function POST(request: NextRequest) {
   try {
     // Vérifier l'authentification
     await requireAuth();
 
-    // Récupérer le body de la requête
-    const body = await request.json();
+    // Détecter le type de contenu
+    const contentType = request.headers.get("content-type") || "";
+    const isFormData = contentType.includes("multipart/form-data");
+
+    let data: any;
+    let imageFiles: File[] = [];
+
+    if (isFormData) {
+      // ─── Mode FormData avec images ───────────────────────────────────
+      
+      // Vérifier que Cloudinary est configuré
+      if (!isCloudinaryConfigured()) {
+        return NextResponse.json(
+          { error: "Cloudinary n'est pas configuré. Vérifiez vos variables d'environnement." },
+          { status: 500 }
+        );
+      }
+
+      const formData = await request.formData();
+
+      // Extraire les données du véhicule
+      data = {
+        marque: formData.get("marque") as string,
+        modele: formData.get("modele") as string,
+        annee: parseInt(formData.get("annee") as string),
+        version: (formData.get("version") as string) || null,
+        kilometrage: parseInt(formData.get("kilometrage") as string),
+        prix: parseInt(formData.get("prix") as string),
+        carburant: formData.get("carburant") as string,
+        boite: formData.get("boite") as string,
+        puissance: formData.get("puissance") as string,
+        couleur: formData.get("couleur") as string,
+        portes: parseInt(formData.get("portes") as string),
+        places: parseInt(formData.get("places") as string),
+        description: formData.get("description") as string,
+        options: JSON.parse(formData.get("options") as string || "[]") as string[],
+        status: formData.get("status") as string,
+        badge: (formData.get("badge") as string) || null,
+        featured: formData.get("featured") === "true",
+      };
+
+      // Récupérer les fichiers images
+      imageFiles = formData.getAll("images") as File[];
+
+    } else {
+      // ─── Mode JSON (ancien comportement) ─────────────────────────────
+      data = await request.json();
+    }
 
     // Valider les données avec Zod
-    const validationResult = createVehicleSchema.safeParse(body);
+    const validationResult = createVehicleSchema.safeParse(data);
 
     if (!validationResult.success) {
       return NextResponse.json(
@@ -148,10 +196,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const data = validationResult.data;
+    const validData = validationResult.data;
 
     // Générer un slug unique à partir de marque-modele-annee
-    const baseSlug = `${data.marque}-${data.modele}-${data.annee}`
+    const baseSlug = `${validData.marque}-${validData.modele}-${validData.annee}`
       .toLowerCase()
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "") // Retirer les accents
@@ -167,12 +215,45 @@ export async function POST(request: NextRequest) {
       counter++;
     }
 
-    // Créer le véhicule
+    // ─── Upload des images sur Cloudinary (si présentes) ─────────────
+
+    const uploadedImages: Array<{ url: string; publicId: string }> = [];
+
+    if (imageFiles.length > 0) {
+      console.log(`[API ADMIN] Upload de ${imageFiles.length} images sur Cloudinary...`);
+      
+      for (const file of imageFiles) {
+        if (file.size > 0) { // Vérifier que ce n'est pas un fichier vide
+          try {
+            const result = await uploadImage(file, "vehicles");
+            uploadedImages.push(result);
+          } catch (error) {
+            console.error("[API ADMIN] Erreur upload image:", error);
+            // On continue même si une image échoue
+          }
+        }
+      }
+    }
+
+    // ─── Créer le véhicule avec les images ───────────────────────────
+
     const vehicle = await prisma.vehicle.create({
       data: {
-        ...data,
+        ...validData,
         slug,
-        publishedAt: data.status === "PUBLISHED" ? new Date() : null,
+        publishedAt: validData.status === "PUBLISHED" ? new Date() : null,
+        // Créer les images en même temps (si présentes)
+        ...(uploadedImages.length > 0 && {
+          images: {
+            create: uploadedImages.map((img, index) => ({
+              url: img.url,
+              publicId: img.publicId,
+              position: index,
+              isMain: index === 0, // La première image est l'image principale
+              alt: `${validData.marque} ${validData.modele} - Photo ${index + 1}`,
+            })),
+          },
+        }),
       },
       include: {
         images: true,
@@ -184,12 +265,15 @@ export async function POST(request: NextRequest) {
       slug: vehicle.slug,
       marque: vehicle.marque,
       modele: vehicle.modele,
+      imagesCount: vehicle.images.length,
     });
 
     return NextResponse.json(
       {
         success: true,
-        message: "Véhicule créé avec succès",
+        message: uploadedImages.length > 0 
+          ? `Véhicule créé avec succès avec ${uploadedImages.length} image(s)` 
+          : "Véhicule créé avec succès",
         vehicle,
       },
       { status: 201 }
@@ -203,7 +287,10 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(
-      { error: "Erreur lors de la création du véhicule" },
+      { 
+        error: "Erreur lors de la création du véhicule",
+        details: error instanceof Error ? error.message : "Erreur inconnue"
+      },
       { status: 500 }
     );
   }
