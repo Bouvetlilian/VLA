@@ -14,7 +14,7 @@ const createAdminSchema = z.object({
     .min(8, "Le mot de passe doit faire au moins 8 caractères")
     .regex(
       /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/,
-      "Le mot de passe doit contenir au moins une minuscule, une majuscule et un chiffre"
+      "Le mot de passe doit contenir au moins une minuscule, une majuscule et un chiffre",
     ),
   role: z.nativeEnum(AdminRole).default(AdminRole.ADMIN),
 });
@@ -66,13 +66,13 @@ export async function GET(request: NextRequest) {
     if (error instanceof Error && error.message.includes("Forbidden")) {
       return NextResponse.json(
         { error: "Accès refusé - Réservé aux super administrateurs" },
-        { status: 403 }
+        { status: 403 },
       );
     }
 
     return NextResponse.json(
       { error: "Erreur lors de la récupération des administrateurs" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
@@ -99,7 +99,7 @@ export async function POST(request: NextRequest) {
           error: "Données invalides",
           details: validationResult.error.flatten().fieldErrors,
         },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
     if (existingAdmin) {
       return NextResponse.json(
         { error: "Un administrateur avec cet email existe déjà" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -150,7 +150,7 @@ export async function POST(request: NextRequest) {
         message: "Administrateur créé avec succès",
         admin,
       },
-      { status: 201 }
+      { status: 201 },
     );
   } catch (error) {
     console.error("[API ADMIN] Erreur POST /api/admin/admins:", error);
@@ -162,13 +162,13 @@ export async function POST(request: NextRequest) {
     if (error instanceof Error && error.message.includes("Forbidden")) {
       return NextResponse.json(
         { error: "Accès refusé - Réservé aux super administrateurs" },
-        { status: 403 }
+        { status: 403 },
       );
     }
 
     return NextResponse.json(
       { error: "Erreur lors de la création de l'administrateur" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
@@ -177,7 +177,7 @@ export async function POST(request: NextRequest) {
  * PATCH /api/admin/admins
  * Modifie un administrateur (activation/désactivation, rôle)
  * Réservé aux SUPER_ADMIN
- * 
+ *
  * Note: L'ID de l'admin à modifier est passé dans le body
  */
 export async function PATCH(request: NextRequest) {
@@ -191,7 +191,10 @@ export async function PATCH(request: NextRequest) {
     const { adminId, ...updateData } = body;
 
     if (!adminId) {
-      return NextResponse.json({ error: "ID administrateur manquant" }, { status: 400 });
+      return NextResponse.json(
+        { error: "ID administrateur manquant" },
+        { status: 400 },
+      );
     }
 
     // Valider les données de mise à jour
@@ -203,7 +206,7 @@ export async function PATCH(request: NextRequest) {
           error: "Données invalides",
           details: validationResult.error.flatten().fieldErrors,
         },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -215,15 +218,18 @@ export async function PATCH(request: NextRequest) {
     if (!existingAdmin) {
       return NextResponse.json(
         { error: "Administrateur non trouvé" },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
     // Empêcher un admin de se désactiver lui-même
-    if (adminId === session.id && validationResult.data.isActive === false) {
+    if (
+      adminId === session.user?.id &&
+      validationResult.data.isActive === false
+    ) {
       return NextResponse.json(
         { error: "Vous ne pouvez pas désactiver votre propre compte" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -262,13 +268,13 @@ export async function PATCH(request: NextRequest) {
     if (error instanceof Error && error.message.includes("Forbidden")) {
       return NextResponse.json(
         { error: "Accès refusé - Réservé aux super administrateurs" },
-        { status: 403 }
+        { status: 403 },
       );
     }
 
     return NextResponse.json(
       { error: "Erreur lors de la modification de l'administrateur" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

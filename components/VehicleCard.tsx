@@ -3,8 +3,21 @@
 import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { type Vehicle } from "@/lib/data";
 
+// Type pour un véhicule avec ses images
+type Vehicle = {
+  id: number;
+  slug: string;
+  marque: string;
+  modele: string;
+  annee: number;
+  prix: number;
+  kilometrage: number;
+  carburant: string;
+  boite: string;
+  badge?: string | null;
+  images: Array<{ url: string; alt: string | null }> | string[];
+};
 // ─── Composant ────────────────────────────────────────────────────────────────
 
 export default function VehicleCard({
@@ -18,7 +31,7 @@ export default function VehicleCard({
 
   return (
     <Link
-      href={`/acheter/${vehicle.id}`}
+      href={`/acheter/${vehicle.slug}`}
       className="group block bg-white rounded-2xl overflow-hidden cursor-pointer"
       style={{
         boxShadow: hovered
@@ -34,7 +47,13 @@ export default function VehicleCard({
       {/* ── Image ── */}
       <div className="relative h-52 overflow-hidden bg-gray-100">
         <Image
-          src={vehicle.images[0]}
+          src={
+            vehicle.images && vehicle.images.length > 0
+              ? typeof vehicle.images[0] === "string"
+                ? vehicle.images[0]
+                : vehicle.images[0].url
+              : "/images/placeholder-car.svg" // ← Image par défaut
+          }
           alt={`${vehicle.marque} ${vehicle.modele}`}
           fill
           className="object-cover"

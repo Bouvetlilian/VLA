@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createSellLeadSchema } from "@/lib/validations/lead";
+import { sendAdminNotification } from "@/lib/email/resend";
+import { generateSellLeadEmail } from "@/lib/email/templates/new-sell-lead";
 
 /**
  * POST /api/leads/sell
@@ -66,10 +68,53 @@ export async function POST(request: NextRequest) {
     //   });
     // }
 
-    // TODO (Étape 5) : Envoyer un email de notification à l'admin
-    // await sendSellLeadNotification(lead);
+    // Envoyer l'email de notification à l'admin
+    try {
+      const emailHtml = generateSellLeadEmail({
+        lead: {
+          id: lead.id,
+          marque: lead.marque,
+          modele: lead.modele,
+          annee: lead.annee,
+          kilometrage: lead.kilometrage,
+          carburant: lead.carburant,
+          boite: lead.boite,
+          etat: lead.etat,
+          carnet: lead.carnet,
+          accident: lead.accident,
+          commentaire: lead.commentaire,
+          prenom: lead.prenom,
+          nom: lead.nom,
+          email: lead.email,
+          telephone: lead.telephone,
+          createdAt: lead.createdAt,
+        },
+      });
 
-    // Logger temporairement dans la console
+      const emailResult = await sendAdminNotification(
+        `Nouvelle demande de rachat - ${data.marque} ${data.modele} ${data.annee}`,
+        emailHtml,
+        "new_sell_lead",
+        lead.id
+      );
+
+      if (emailResult.success) {
+        console.log("[LEAD VENTE] Email envoyé avec succès:", emailResult.messageId);
+        
+        // Mettre à jour le lead avec la date d'envoi
+        await prisma.sellLead.update({
+          where: { id: lead.id },
+          data: { emailSentAt: new Date() },
+        });
+      } else {
+        console.error("[LEAD VENTE] Échec envoi email:", emailResult.error);
+      }
+    } catch (emailError) {
+      // L'erreur d'email ne doit pas bloquer la création du lead
+      console.error("[LEAD VENTE] Exception lors de l'envoi d'email:", emailError);
+    }
+
+    // Logger dans la console
     console.log("[LEAD VENTE] Nouveau lead créé:", {
       id: lead.id,
       vehicule: `${data.marque} ${data.modele} ${data.annee}`,

@@ -29,9 +29,8 @@ declare module "next-auth" {
     name: string;
     role: AdminRole;
   }
-}
 
-declare module "next-auth/jwt" {
+  // Étendre JWT directement ici au lieu d'un module séparé
   interface JWT {
     id: string;
     email: string;

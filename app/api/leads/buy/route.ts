@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createBuyLeadSchema } from "@/lib/validations/lead";
 import { VehicleStatus } from "@prisma/client";
+import { sendAdminNotification } from "@/lib/email/resend";
+import { generateBuyLeadEmail } from "@/lib/email/templates/new-buy-lead";
 
 /**
  * POST /api/leads/buy
@@ -31,7 +33,15 @@ export async function POST(request: NextRequest) {
     // Vérifier que le véhicule existe et est publié
     const vehicle = await prisma.vehicle.findUnique({
       where: { id: vehicleId },
-      select: { id: true, status: true, marque: true, modele: true },
+      select: { 
+        id: true, 
+        status: true, 
+        marque: true, 
+        modele: true,
+        annee: true,
+        prix: true,
+        slug: true,
+      },
     });
 
     if (!vehicle) {
@@ -63,16 +73,57 @@ export async function POST(request: NextRequest) {
             marque: true,
             modele: true,
             annee: true,
+            prix: true,
             slug: true,
           },
         },
       },
     });
 
-    // TODO (Étape 5) : Envoyer un email de notification à l'admin
-    // await sendBuyLeadNotification(lead);
+    // Envoyer l'email de notification à l'admin
+    try {
+      const emailHtml = generateBuyLeadEmail({
+        lead: {
+          id: lead.id,
+          prenom: lead.prenom,
+          telephone: lead.telephone,
+          message: lead.message,
+          createdAt: lead.createdAt,
+        },
+        vehicle: {
+          id: vehicle.id,
+          marque: vehicle.marque,
+          modele: vehicle.modele,
+          annee: vehicle.annee,
+          prix: vehicle.prix,
+          slug: vehicle.slug,
+        },
+      });
 
-    // Logger temporairement dans la console
+      const emailResult = await sendAdminNotification(
+        `Nouvelle demande d'achat - ${vehicle.marque} ${vehicle.modele}`,
+        emailHtml,
+        "new_buy_lead",
+        lead.id
+      );
+
+      if (emailResult.success) {
+        console.log("[LEAD ACHAT] Email envoyé avec succès:", emailResult.messageId);
+        
+        // Mettre à jour le lead avec la date d'envoi
+        await prisma.buyLead.update({
+          where: { id: lead.id },
+          data: { emailSentAt: new Date() },
+        });
+      } else {
+        console.error("[LEAD ACHAT] Échec envoi email:", emailResult.error);
+      }
+    } catch (emailError) {
+      // L'erreur d'email ne doit pas bloquer la création du lead
+      console.error("[LEAD ACHAT] Exception lors de l'envoi d'email:", emailError);
+    }
+
+    // Logger dans la console
     console.log("[LEAD ACHAT] Nouveau lead créé:", {
       id: lead.id,
       vehicule: `${vehicle.marque} ${vehicle.modele}`,

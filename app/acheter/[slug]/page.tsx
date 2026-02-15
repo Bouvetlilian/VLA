@@ -214,7 +214,7 @@ function ContactModal({
 export default function VehicleDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const slug = params.id as string;
+  const slug = params.slug as string;
 
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
   const [loading, setLoading] = useState(true);
