@@ -89,17 +89,25 @@ export async function GET(request: NextRequest) {
     });
 
     // ──────────────────────────────────────────────────────────────
-    // ÉVOLUTION DES LEADS (7 derniers jours)
+    // TAUX DE CONVERSION
     // ──────────────────────────────────────────────────────────────
 
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const totalLeads = buyLeadsStats.total + sellLeadsStats.total;
+    const treatedLeads = buyLeadsStats[LeadStatus.TREATED] + sellLeadsStats[LeadStatus.TREATED];
+    const conversionRate = totalLeads > 0 ? (treatedLeads / totalLeads) * 100 : 0;
 
-    // Leads achat des 7 derniers jours
+    // ──────────────────────────────────────────────────────────────
+    // ÉVOLUTION DES LEADS (30 derniers jours)
+    // ──────────────────────────────────────────────────────────────
+
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    // Leads achat des 30 derniers jours
     const recentBuyLeads = await prisma.buyLead.findMany({
       where: {
         createdAt: {
-          gte: sevenDaysAgo,
+          gte: thirtyDaysAgo,
         },
       },
       select: {
@@ -107,11 +115,11 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    // Leads vente des 7 derniers jours
+    // Leads vente des 30 derniers jours
     const recentSellLeads = await prisma.sellLead.findMany({
       where: {
         createdAt: {
-          gte: sevenDaysAgo,
+          gte: thirtyDaysAgo,
         },
       },
       select: {
@@ -119,30 +127,121 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    // Grouper par jour
-    const leadsTimeline = Array.from({ length: 7 }, (_, i) => {
-      const date = new Date();
-      date.setDate(date.getDate() - (6 - i));
-      date.setHours(0, 0, 0, 0);
+    // Grouper par semaine (4 dernières semaines)
+    const leadsTimeline = Array.from({ length: 4 }, (_, i) => {
+      const weekStart = new Date();
+      weekStart.setDate(weekStart.getDate() - (3 - i) * 7);
+      weekStart.setHours(0, 0, 0, 0);
 
-      const nextDate = new Date(date);
-      nextDate.setDate(nextDate.getDate() + 1);
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekEnd.getDate() + 7);
 
       const buyCount = recentBuyLeads.filter(
-        (lead) => lead.createdAt >= date && lead.createdAt < nextDate
+        (lead) => lead.createdAt >= weekStart && lead.createdAt < weekEnd
       ).length;
 
       const sellCount = recentSellLeads.filter(
-        (lead) => lead.createdAt >= date && lead.createdAt < nextDate
+        (lead) => lead.createdAt >= weekStart && lead.createdAt < weekEnd
       ).length;
 
       return {
-        date: date.toISOString().split("T")[0], // Format YYYY-MM-DD
+        week: `S${i + 1}`,
         buyLeads: buyCount,
         sellLeads: sellCount,
         total: buyCount + sellCount,
       };
     });
+
+    // ──────────────────────────────────────────────────────────────
+    // TOP 5 MARQUES LES PLUS DEMANDÉES
+    // ──────────────────────────────────────────────────────────────
+
+    // Compter les leads achat par marque de véhicule
+    const buyLeadsWithVehicle = await prisma.buyLead.findMany({
+      include: {
+        vehicle: {
+          select: {
+            marque: true,
+          },
+        },
+      },
+    });
+
+    const brandCounts: Record<string, number> = {};
+    
+    buyLeadsWithVehicle.forEach((lead) => {
+      const brand = lead.vehicle.marque;
+      brandCounts[brand] = (brandCounts[brand] || 0) + 1;
+    });
+
+    // Ajouter les marques des leads vente
+    const sellLeadsAll = await prisma.sellLead.findMany({
+      select: {
+        marque: true,
+      },
+    });
+
+    sellLeadsAll.forEach((lead) => {
+      brandCounts[lead.marque] = (brandCounts[lead.marque] || 0) + 1;
+    });
+
+    // Trier et prendre le top 5
+    const topBrands = Object.entries(brandCounts)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 5)
+      .map(([brand, count]) => ({
+        brand,
+        count,
+      }));
+
+    // ──────────────────────────────────────────────────────────────
+    // VÉHICULES LES PLUS POPULAIRES (avec le plus de leads)
+    // ──────────────────────────────────────────────────────────────
+
+    const popularVehicles = await prisma.vehicle.findMany({
+      where: {
+        status: VehicleStatus.PUBLISHED,
+      },
+      include: {
+        _count: {
+          select: {
+            buyLeads: true,
+          },
+        },
+      },
+      orderBy: {
+        buyLeads: {
+          _count: "desc",
+        },
+      },
+      take: 5,
+    });
+
+    const topVehicles = popularVehicles.map((vehicle) => ({
+      id: vehicle.id,
+      slug: vehicle.slug,
+      marque: vehicle.marque,
+      modele: vehicle.modele,
+      annee: vehicle.annee,
+      prix: vehicle.prix,
+      leadsCount: vehicle._count.buyLeads,
+    }));
+
+    // ──────────────────────────────────────────────────────────────
+    // RÉPARTITION PAR STATUT (pour graphiques)
+    // ──────────────────────────────────────────────────────────────
+
+    const vehicleStatusDistribution = [
+      { name: "Publiés", value: vehiclesStats[VehicleStatus.PUBLISHED], color: "#10B981" },
+      { name: "Brouillons", value: vehiclesStats[VehicleStatus.DRAFT], color: "#6B7280" },
+      { name: "Réservés", value: vehiclesStats[VehicleStatus.RESERVED], color: "#F59E0B" },
+      { name: "Vendus", value: vehiclesStats[VehicleStatus.SOLD], color: "#EF4444" },
+    ];
+
+    const leadsTypeDistribution = [
+      { name: "Demandes d'achat", value: buyLeadsStats.total, color: "#FF8633" },
+      { name: "Demandes de vente", value: sellLeadsStats.total, color: "#8B5CF6" },
+    ];
 
     // ──────────────────────────────────────────────────────────────
     // LEADS RÉCENTS (5 derniers)
@@ -183,10 +282,27 @@ export async function GET(request: NextRequest) {
     // ──────────────────────────────────────────────────────────────
 
     return NextResponse.json({
+      // Stats globales
       vehicles: vehiclesStats,
       buyLeads: buyLeadsStats,
       sellLeads: sellLeadsStats,
+      
+      // KPIs
+      kpis: {
+        totalLeads,
+        treatedLeads,
+        conversionRate: Math.round(conversionRate * 10) / 10, // Arrondi à 1 décimale
+        activeVehicles: vehiclesStats[VehicleStatus.PUBLISHED],
+      },
+      
+      // Graphiques
       timeline: leadsTimeline,
+      topBrands,
+      topVehicles,
+      vehicleStatusDistribution,
+      leadsTypeDistribution,
+      
+      // Activité récente
       recentActivity: {
         buyLeads: latestBuyLeads,
         sellLeads: latestSellLeads,
