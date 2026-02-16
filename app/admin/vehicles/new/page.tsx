@@ -1,14 +1,15 @@
 // app/admin/vehicles/new/page.tsx
 // ─────────────────────────────────────────────────────────────────────────────
 // Création d'un nouveau véhicule - Back office admin
-// Formulaire complet avec tous les champs + upload d'images (à venir)
+// Formulaire complet avec upload d'images Cloudinary
 // ─────────────────────────────────────────────────────────────────────────────
 
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useState, FormEvent, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 
 type FormData = {
   marque: string;
@@ -30,10 +31,18 @@ type FormData = {
   featured: boolean;
 };
 
+type ImagePreview = {
+  file: File;
+  preview: string;
+};
+
 export default function NewVehiclePage() {
   const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [images, setImages] = useState<ImagePreview[]>([]);
   
   const [formData, setFormData] = useState<FormData>({
     marque: "",
@@ -55,38 +64,114 @@ export default function NewVehiclePage() {
     featured: false,
   });
 
+  // Gestion de la sélection d'images
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    const newImages: ImagePreview[] = [];
+
+    Array.from(files).forEach((file) => {
+      // Vérifier le type de fichier
+      if (!file.type.startsWith("image/")) {
+        alert(`${file.name} n'est pas une image`);
+        return;
+      }
+
+      // Vérifier la taille (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        alert(`${file.name} est trop volumineux (max 5MB)`);
+        return;
+      }
+
+      // Créer un preview
+      const preview = URL.createObjectURL(file);
+      newImages.push({ file, preview });
+    });
+
+    setImages((prev) => [...prev, ...newImages]);
+
+    // Reset l'input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  // Suppression d'une image
+  const handleRemoveImage = (index: number) => {
+    setImages((prev) => {
+      const newImages = [...prev];
+      // Libérer la mémoire du preview
+      URL.revokeObjectURL(newImages[index].preview);
+      newImages.splice(index, 1);
+      return newImages;
+    });
+  };
+
+  // Définir une image comme principale
+  const handleSetMainImage = (index: number) => {
+    if (index === 0) return; // Déjà principale
+    
+    setImages((prev) => {
+      const newImages = [...prev];
+      const [mainImage] = newImages.splice(index, 1);
+      newImages.unshift(mainImage);
+      return newImages;
+    });
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
 
     try {
-      // Préparer les données
-      const payload = {
-        ...formData,
-        annee: parseInt(formData.annee),
-        kilometrage: parseInt(formData.kilometrage),
-        prix: parseInt(formData.prix),
-        portes: parseInt(formData.portes),
-        places: parseInt(formData.places),
-        options: formData.options
-          .split(",")
-          .map((opt) => opt.trim())
-          .filter(Boolean),
-        badge: formData.badge || null,
-        version: formData.version || null,
-      };
+      // Créer un FormData
+      const payload = new FormData();
+
+      // Ajouter les champs du véhicule
+      payload.append("marque", formData.marque);
+      payload.append("modele", formData.modele);
+      payload.append("annee", formData.annee);
+      payload.append("version", formData.version);
+      payload.append("kilometrage", formData.kilometrage);
+      payload.append("prix", formData.prix);
+      payload.append("carburant", formData.carburant);
+      payload.append("boite", formData.boite);
+      payload.append("puissance", formData.puissance);
+      payload.append("couleur", formData.couleur);
+      payload.append("portes", formData.portes);
+      payload.append("places", formData.places);
+      payload.append("description", formData.description);
+      payload.append("status", formData.status);
+      payload.append("badge", formData.badge);
+      payload.append("featured", formData.featured.toString());
+
+      // Transformer les options en JSON
+      const optionsArray = formData.options
+        .split(",")
+        .map((opt) => opt.trim())
+        .filter(Boolean);
+      payload.append("options", JSON.stringify(optionsArray));
+
+      // Ajouter les images
+      images.forEach((img) => {
+        payload.append("images", img.file);
+      });
 
       const response = await fetch("/api/admin/vehicles", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: payload, // ⚠️ Pas de Content-Type (auto-détecté par le navigateur)
       });
 
       const data = await response.json();
 
       if (response.ok) {
-        alert("Véhicule créé avec succès !");
+        alert(data.message || "Véhicule créé avec succès !");
+        
+        // Nettoyer les previews
+        images.forEach((img) => URL.revokeObjectURL(img.preview));
+        
         router.push("/admin/vehicles");
       } else {
         setError(data.error || "Une erreur est survenue");
@@ -394,7 +479,112 @@ export default function NewVehiclePage() {
           </div>
         </div>
 
-        {/* Section 4 : Publication */}
+        {/* Section 4 : Images */}
+        <div className="bg-white rounded-2xl p-6 shadow-lg">
+          <h2 className="font-black text-xl text-vla-black mb-6">
+            Photos du véhicule
+          </h2>
+
+          {/* Zone d'upload */}
+          <div className="mb-6">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={handleImageSelect}
+              className="hidden"
+              id="image-upload"
+            />
+            
+            <label
+              htmlFor="image-upload"
+              className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-vla-orange hover:bg-orange-50 transition-all"
+            >
+              <svg className="w-10 h-10 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              <span className="text-sm font-semibold text-gray-600">
+                Cliquez pour ajouter des images
+              </span>
+              <span className="text-xs text-gray-500 mt-1">
+                JPG, PNG, WebP (max 5MB par image)
+              </span>
+            </label>
+          </div>
+
+          {/* Preview des images */}
+          {images.length > 0 && (
+            <div>
+              <p className="text-sm font-semibold text-gray-700 mb-3">
+                {images.length} image{images.length > 1 ? "s" : ""} sélectionnée{images.length > 1 ? "s" : ""}
+              </p>
+              
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {images.map((img, index) => (
+                  <div key={index} className="relative group">
+                    {/* Image */}
+                    <div className="relative aspect-[4/3] rounded-xl overflow-hidden bg-gray-100">
+                      <Image
+                        src={img.preview}
+                        alt={`Preview ${index + 1}`}
+                        fill
+                        className="object-cover"
+                      />
+                      
+                      {/* Badge "Principale" */}
+                      {index === 0 && (
+                        <div className="absolute top-2 left-2 bg-vla-orange text-white text-xs font-bold px-2 py-1 rounded">
+                          Principale
+                        </div>
+                      )}
+
+                      {/* Overlay au hover */}
+                      <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-50 transition-all flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
+                        {/* Bouton "Définir comme principale" */}
+                        {index !== 0 && (
+                          <button
+                            type="button"
+                            onClick={() => handleSetMainImage(index)}
+                            className="p-2 bg-white rounded-lg hover:bg-gray-100 transition-colors"
+                            title="Définir comme image principale"
+                          >
+                            <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                            </svg>
+                          </button>
+                        )}
+
+                        {/* Bouton supprimer */}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveImage(index)}
+                          className="p-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+                          title="Supprimer"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Nom du fichier */}
+                    <p className="text-xs text-gray-500 mt-1 truncate">
+                      {img.file.name}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              <p className="text-xs text-gray-500 mt-4">
+                💡 La première image sera utilisée comme image principale. Cliquez sur l'étoile pour changer.
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Section 5 : Publication */}
         <div className="bg-white rounded-2xl p-6 shadow-lg">
           <h2 className="font-black text-xl text-vla-black mb-6">
             Publication
@@ -450,13 +640,6 @@ export default function NewVehiclePage() {
           </div>
         </div>
 
-        {/* Note : Upload d'images sera ajouté à l'étape 6 */}
-        <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-4">
-          <p className="text-sm font-semibold text-blue-700">
-            ℹ️ L'upload d'images sera disponible après l'intégration de Cloudinary (Étape 6)
-          </p>
-        </div>
-
         {/* Boutons */}
         <div className="flex items-center justify-end gap-4">
           <Link
@@ -471,7 +654,7 @@ export default function NewVehiclePage() {
             disabled={loading}
             className="px-6 py-3 bg-vla-orange text-white rounded-xl font-bold hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {loading ? "Création..." : "Créer le véhicule"}
+            {loading ? "Création en cours..." : "Créer le véhicule"}
           </button>
         </div>
       </form>

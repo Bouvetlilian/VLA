@@ -2,13 +2,14 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Layout du back office administrateur
 // Sidebar desktop (260px) + Header mobile avec overlay
+// Exclusion de la sidebar/header sur la page de login
 // ─────────────────────────────────────────────────────────────────────────────
 
 "use client";
 
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
-import { redirect } from "next/navigation";
+import { usePathname, redirect } from "next/navigation";
 import Sidebar from "@/components/admin/Sidebar";
 import AdminHeader from "@/components/admin/AdminHeader";
 
@@ -18,15 +19,19 @@ export default function AdminLayout({
   children: React.ReactNode;
 }) {
   const { data: session, status } = useSession();
+  const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [newLeadsCount, setNewLeadsCount] = useState(0);
 
-  // Redirection si non authentifié
+  // Déterminer si on est sur la page de login
+  const isLoginPage = pathname === "/admin/login";
+
+  // Redirection si non authentifié (sauf sur la page de login)
   useEffect(() => {
-    if (status === "unauthenticated") {
+    if (status === "unauthenticated" && !isLoginPage) {
       redirect("/admin/login");
     }
-  }, [status]);
+  }, [status, isLoginPage]);
 
   // Récupérer le compteur de nouveaux leads (sera implémenté avec l'API)
   useEffect(() => {
@@ -39,8 +44,8 @@ export default function AdminLayout({
     // fetchNewLeadsCount();
   }, []);
 
-  // Loading state
-  if (status === "loading") {
+  // Loading state (sauf sur la page de login)
+  if (status === "loading" && !isLoginPage) {
     return (
       <div className="min-h-screen bg-vla-beige flex items-center justify-center">
         <div className="text-center">
@@ -51,19 +56,33 @@ export default function AdminLayout({
     );
   }
 
-  // Si pas de session, ne rien afficher (redirect en cours)
-  if (!session) {
+  // Si pas de session et pas sur la page de login, ne rien afficher (redirect en cours)
+  if (!session && !isLoginPage) {
     return null;
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // SI PAGE DE LOGIN → Afficher uniquement le contenu sans sidebar/header
+  // ─────────────────────────────────────────────────────────────────────────
+  if (isLoginPage) {
+    return (
+      <div className="min-h-screen bg-vla-beige">
+        {children}
+      </div>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // SINON → Afficher le layout complet avec sidebar/header
+  // ─────────────────────────────────────────────────────────────────────────
   return (
     <div className="flex h-screen bg-vla-beige">
       {/* Sidebar Desktop (cachée sur mobile) */}
       <div className="hidden lg:block">
         <Sidebar
-          userName={session.user?.name || "Admin"}
-          userEmail={session.user?.email || ""}
-          userRole={session.user?.role || "ADMIN"}
+          userName={session?.user?.name || "Admin"}
+          userEmail={session?.user?.email || ""}
+          userRole={session?.user?.role || "ADMIN"}
           newLeadsCount={newLeadsCount}
         />
       </div>
@@ -80,9 +99,9 @@ export default function AdminLayout({
           {/* Sidebar */}
           <div className="fixed inset-y-0 left-0 w-64 z-50 lg:hidden">
             <Sidebar
-              userName={session.user?.name || "Admin"}
-              userEmail={session.user?.email || ""}
-              userRole={session.user?.role || "ADMIN"}
+              userName={session?.user?.name || "Admin"}
+              userEmail={session?.user?.email || ""}
+              userRole={session?.user?.role || "ADMIN"}
               newLeadsCount={newLeadsCount}
             />
           </div>
@@ -93,7 +112,7 @@ export default function AdminLayout({
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header Mobile */}
         <AdminHeader
-          userName={session.user?.name || "Admin"}
+          userName={session?.user?.name || "Admin"}
           newLeadsCount={newLeadsCount}
           onMenuClick={() => setSidebarOpen(true)}
         />

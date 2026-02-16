@@ -64,32 +64,44 @@ export async function GET(request: NextRequest) {
       take: limit,
     });
 
-    // Calculer les stats par statut
-    const stats = await prisma.sellLead.groupBy({
+    // Calculer les stats par statut (sur TOUS les leads, pas juste la page actuelle)
+    const statsRaw = await prisma.sellLead.groupBy({
       by: ["status"],
       _count: {
         status: true,
       },
     });
 
-    // Formater les stats en objet
-    const statsFormatted = {
+    // Formater les stats pour le frontend (camelCase)
+    const statsMap: Record<string, number> = {
       [LeadStatus.NEW]: 0,
       [LeadStatus.IN_PROGRESS]: 0,
       [LeadStatus.TREATED]: 0,
       [LeadStatus.ARCHIVED]: 0,
     };
 
-    stats.forEach((stat) => {
-      statsFormatted[stat.status] = stat._count.status;
+    statsRaw.forEach((stat) => {
+      statsMap[stat.status] = stat._count.status;
     });
+
+    // Calculer le total de tous les leads (pas juste ceux filtrés)
+    const totalAllLeads = Object.values(statsMap).reduce((sum, count) => sum + count, 0);
+
+    // Retourner les stats au format attendu par le frontend
+    const stats = {
+      total: totalAllLeads,
+      new: statsMap[LeadStatus.NEW],
+      inProgress: statsMap[LeadStatus.IN_PROGRESS],
+      treated: statsMap[LeadStatus.TREATED],
+      archived: statsMap[LeadStatus.ARCHIVED],
+    };
 
     // Calculer les métadonnées de pagination
     const totalPages = Math.ceil(total / limit);
 
     return NextResponse.json({
       leads,
-      stats: statsFormatted,
+      stats,
       pagination: {
         page,
         limit,

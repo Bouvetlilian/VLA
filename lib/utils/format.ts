@@ -45,11 +45,20 @@ export function formatDateShort(date: Date | string): string {
 /**
  * Formate une date relative (il y a X jours)
  * @example formatRelativeDate(new Date("2024-01-15")) → "il y a 3 jours"
+ * 
+ * CORRECTION : Compare les jours calendaires, pas les 24h
+ * Exemple : 15/02 à 23h → 16/02 à 1h = "hier" (et non "aujourd'hui")
  */
 export function formatRelativeDate(date: Date | string): string {
   const d = typeof date === "string" ? new Date(date) : date;
   const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
+  
+  // Normaliser les dates à minuit pour comparer les jours calendaires
+  const dateOnly = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const nowOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  
+  // Calculer la différence en jours calendaires
+  const diffMs = nowOnly.getTime() - dateOnly.getTime();
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
   
   if (diffDays === 0) return "aujourd'hui";
