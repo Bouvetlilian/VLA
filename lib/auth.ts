@@ -28,6 +28,7 @@ declare module "next-auth" {
     email: string;
     name: string;
     role: AdminRole;
+    requires2FA?: boolean; // Flag pour indiquer que le 2FA est requis
   }
 
   // Étendre JWT directement ici au lieu d'un module séparé
@@ -92,11 +93,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (admin.twoFactorEnabled) {
           if (!credentials.token2FA) {
             // Première étape : password OK, mais on demande le code 2FA
-            // On lance une erreur spéciale pour que le frontend sache qu'il faut demander le 2FA
-            throw new Error("2FA_REQUIRED");
+            // On retourne un objet spécial avec un flag requires2FA
+            // ⚠️ IMPORTANT : On ne throw pas d'erreur, on retourne null
+            // mais NextAuth va rejeter la connexion
+            throw new Error("REQUIRES_2FA");
           }
 
-          // Vérifier le code 2FA (on créera la fonction plus tard)
+          // Vérifier le code 2FA
           const isValid2FA = await verify2FAToken(
             admin.twoFactorSecret!,
             credentials.token2FA as string,
@@ -152,7 +155,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
 /**
  * Vérifie un code TOTP (Google Authenticator)
- * On importera OTPAuth dans le prochain fichier
  */
 async function verify2FAToken(
   encryptedSecret: string,

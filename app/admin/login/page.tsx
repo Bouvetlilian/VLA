@@ -9,7 +9,6 @@
 import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Image from "next/image";
 
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -29,27 +28,62 @@ export default function AdminLoginPage() {
     setLoading(true);
 
     try {
-      const result = await signIn("credentials", {
+      // Si on n'est pas encore en mode 2FA, vérifier d'abord si le 2FA est requis
+      if (!needs2FA) {
+        // Appeler l'API pour vérifier si le 2FA est activé
+        const checkResponse = await fetch("/api/auth/check-2fa", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
+
+        const checkData = await checkResponse.json();
+
+        if (!checkResponse.ok) {
+          setError(checkData.error || "Erreur de connexion");
+          setLoading(false);
+          return;
+        }
+
+        // Si le 2FA est requis, afficher le champ
+        if (checkData.requires2FA) {
+          setNeeds2FA(true);
+          setError("");
+          setLoading(false);
+          return;
+        }
+      }
+
+      // Si on arrive ici, soit le 2FA n'est pas requis, soit on a déjà le code
+      // Préparer les credentials
+      const credentials: Record<string, string> = {
         email,
         password,
-        token2FA: needs2FA ? token2FA : undefined,
+      };
+
+      // Ajouter le token 2FA si on est en mode 2FA
+      if (needs2FA && token2FA) {
+        credentials.token2FA = token2FA;
+      }
+
+      const result = await signIn("credentials", {
+        ...credentials,
         redirect: false,
       });
 
+      console.log("Résultat signIn:", result); // Debug
+
       if (result?.error) {
-        // Si l'erreur est "2FA_REQUIRED", on affiche le champ 2FA
-        if (result.error === "2FA_REQUIRED") {
-          setNeeds2FA(true);
-          setError("");
-        } else {
-          setError(result.error);
-        }
-      } else {
+        // Gérer les erreurs de signIn
+        setError(result.error === "Configuration" ? "Code 2FA incorrect" : result.error);
+      } else if (result?.ok) {
         // Connexion réussie
         router.push(callbackUrl);
         router.refresh();
+        return;
       }
     } catch (err) {
+      console.error("Erreur login:", err);
       setError("Une erreur est survenue");
     } finally {
       setLoading(false);
@@ -81,9 +115,7 @@ export default function AdminLoginPage() {
           </h2>
 
           {error && (
-            <div
-              className="mb-6 p-4 rounded-xl bg-red-50 border-2 border-red-200"
-            >
+            <div className="mb-6 p-4 rounded-xl bg-red-50 border-2 border-red-200">
               <p className="text-sm font-bold text-red-600">{error}</p>
             </div>
           )}
@@ -127,6 +159,13 @@ export default function AdminLoginPage() {
               </>
             ) : (
               <>
+                {/* Info utilisateur */}
+                <div className="mb-4 p-4 rounded-xl bg-vla-beige">
+                  <p className="text-sm font-semibold text-gray-600">
+                    Connecté en tant que <span className="font-black text-vla-black">{email}</span>
+                  </p>
+                </div>
+
                 {/* Code 2FA */}
                 <div>
                   <label className="block text-xs font-black uppercase tracking-widest text-vla-orange mb-2">
@@ -135,10 +174,13 @@ export default function AdminLoginPage() {
                   <input
                     type="text"
                     value={token2FA}
-                    onChange={(e) => setToken2FA(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    onChange={(e) =>
+                      setToken2FA(e.target.value.replace(/\D/g, "").slice(0, 6))
+                    }
                     required
+                    autoFocus
                     autoComplete="one-time-code"
-                    placeholder="123456"
+                    placeholder="000000"
                     maxLength={6}
                     className="w-full bg-vla-beige border-2 border-transparent rounded-xl px-4 py-3 text-center text-2xl font-black text-vla-black placeholder-gray-400 outline-none focus:border-vla-orange transition-all tracking-widest"
                     style={{ boxShadow: "inset 0 2px 6px rgba(0,0,0,0.04)" }}
@@ -171,7 +213,9 @@ export default function AdminLoginPage() {
               style={{
                 background: loading ? "#e5e7eb" : "#FF8633",
                 cursor: loading ? "not-allowed" : "pointer",
-                boxShadow: loading ? "none" : "0 4px 20px rgba(255,134,51,0.3)",
+                boxShadow: loading
+                  ? "none"
+                  : "0 4px 20px rgba(255,134,51,0.3)",
               }}
             >
               {loading ? (
@@ -200,7 +244,8 @@ export default function AdminLoginPage() {
 
         {/* Footer */}
         <p className="text-center text-xs text-gray-400 font-semibold mt-6">
-          VL Automobiles © {new Date().getFullYear()} — Espace réservé aux administrateurs
+          VL Automobiles © {new Date().getFullYear()} — Espace réservé aux
+          administrateurs
         </p>
       </div>
     </div>
