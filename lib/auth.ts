@@ -20,6 +20,7 @@ declare module "next-auth" {
       email: string;
       name: string;
       role: AdminRole;
+      twoFactorEnabled?: boolean;
     } & DefaultSession["user"];
   }
 
@@ -28,6 +29,7 @@ declare module "next-auth" {
     email: string;
     name: string;
     role: AdminRole;
+    twoFactorEnabled?: boolean; // Indique si le 2FA est activé
     requires2FA?: boolean; // Flag pour indiquer que le 2FA est requis
   }
 
@@ -37,6 +39,7 @@ declare module "next-auth" {
     email: string;
     name: string;
     role: AdminRole;
+    twoFactorEnabled?: boolean;
   }
 }
 
@@ -122,6 +125,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           email: admin.email,
           name: admin.name,
           role: admin.role,
+          twoFactorEnabled: admin.twoFactorEnabled,
         };
       },
     }),
@@ -134,6 +138,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.email = user.email;
         token.name = user.name;
         token.role = user.role;
+        token.twoFactorEnabled = user.twoFactorEnabled;
       }
       return token;
     },
@@ -145,6 +150,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         session.user.email = token.email;
         session.user.name = token.name;
         session.user.role = token.role;
+        session.user.twoFactorEnabled = token.twoFactorEnabled;
       }
       return session;
     },
