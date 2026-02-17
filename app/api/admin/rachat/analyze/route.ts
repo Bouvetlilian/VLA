@@ -1,35 +1,164 @@
+// app/api/admin/rachat/analyze/route.ts
+// v3 — Scraping pré-traité côté serveur + Sonnet 4.5 raisonnement uniquement
+// web_search supprimé → coût ~0.05-0.10$ par analyse au lieu de 87$
+
 import { NextRequest, NextResponse } from "next/server";
+import Anthropic from "@anthropic-ai/sdk";
 import { requireAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import Anthropic from "@anthropic-ai/sdk";
+import { scrapeAutoScout24 } from "@/lib/scrapers/autoscout";
+import { scrapeLaCentrale } from "@/lib/scrapers/lacentrale";
+import type { AnnonceScrappee } from "@/lib/scrapers/autoscout";
 
-const client = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY!,
 });
 
-// Extrait le premier bloc JSON valide trouvé dans un texte
+// ─── Extraction JSON robuste ─────────────────────────────────────────────────
 function extractJSON(text: string): string {
-  const fenced = text.match(/```json\s*([\s\S]*?)```/);
-  if (fenced) return fenced[1].trim();
-
-  const start = text.indexOf("{");
-  if (start === -1) throw new SyntaxError("Aucun JSON trouvé dans la réponse");
-
-  let depth = 0;
-  for (let i = start; i < text.length; i++) {
-    if (text[i] === "{") depth++;
-    if (text[i] === "}") depth--;
-    if (depth === 0) return text.slice(start, i + 1);
+  const startIdx = text.indexOf("{");
+  const endIdx = text.lastIndexOf("}");
+  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+    return text.substring(startIdx, endIdx + 1);
   }
-
-  throw new SyntaxError("JSON incomplet dans la réponse");
+  throw new Error("Aucun bloc JSON trouvé dans la réponse IA");
 }
 
-export async function POST(request: NextRequest) {
+// ─── Formatage des annonces pour le prompt ───────────────────────────────────
+// Transforme les annonces brutes en texte compact — minimise les tokens input
+function formatAnnoncesForPrompt(annonces: AnnonceScrappee[]): string {
+  if (annonces.length === 0)
+    return "Aucune annonce disponible pour cette source.";
+
+  return annonces
+    .map((a, i) => {
+      const km =
+        a.kilometrage > 0
+          ? `${a.kilometrage.toLocaleString("fr-FR")} km`
+          : "km inconnu";
+      const annee = a.annee > 0 ? String(a.annee) : "année inconnue";
+      const vendeur = a.typVendeur === "professionnel" ? "PRO" : "PAR";
+      const version = a.version ? ` — ${a.version.substring(0, 40)}` : "";
+      return `  ${i + 1}. ${a.prix.toLocaleString("fr-FR")}€ | ${annee} | ${km} | ${vendeur}${version}`;
+    })
+    .join("\n");
+}
+
+// ─── System Prompt ───────────────────────────────────────────────────────────
+// Le modèle NE cherche PAS sur le web — il raisonne uniquement sur les données fournies
+const SYSTEM_PROMPT = `Tu es un expert en valorisation de véhicules d'occasion pour un mandataire automobile professionnel (Nantes, Pays de la Loire).
+
+Tu reçois des données de marché réelles collectées en temps réel sur La Centrale et AutoScout24.
+Tu n'as PAS accès au web — tu travailles UNIQUEMENT avec les données fournies.
+
+==============================================================
+  RÔLE ET CONTEXTE MÉTIER
+==============================================================
+Le mandataire rachète des véhicules à des particuliers pour les revendre
+avec une marge. Ton rôle est d'estimer :
+1. Le prix de revente réaliste du véhicule (ce que le mandataire peut obtenir)
+2. Le prix de rachat maximum conseillé (pour préserver la marge)
+
+==============================================================
+  ANALYSE DES DONNÉES DE MARCHÉ
+==============================================================
+À partir des annonces fournies :
+
+1. DISTINCTION obligatoire :
+   - PAR = particulier (prix souvent 5-10% plus haut, négociation courante)
+   - PRO = professionnel (prix de marché réel, plus fiable)
+   Pondérer les prix PRO avec un coefficient 1.0, les PAR avec 0.92
+
+2. CALCUL du prix médian pondéré :
+   - Exclure les outliers (prix < Q1 - 1.5×IQR ou > Q3 + 1.5×IQR)
+   - Calculer la médiane sur les prix restants
+
+3. PRIX DE REVENTE ESTIMÉ = prix médian pondéré PRO
+   Si < 3 annonces PRO disponibles, utiliser 95% du médian général
+
+==============================================================
+  CALCUL DU PRIX DE RACHAT CONSEILLÉ
+==============================================================
+Partir du prix de revente estimé, appliquer dans cet ordre :
+
+ÉTAPE 1 — Marge brute cible : ×0.80 (20% de marge)
+ÉTAPE 2 — Soustraire frais remise en état estimés
+ÉTAPE 3 — Décotes état :
+  Excellent : ×1.00 | Bon : ×0.98 | Correct : ×0.95 | À rénover : ×0.85
+ÉTAPE 4 — Décotes cumulables :
+  km > 100 000 : ×0.95
+  km > 150 000 : ×0.92 (remplace la précédente)
+  Accident déclaré : ×0.92
+  Carnet incomplet : ×0.97
+  Liquidité faible : ×0.95
+ÉTAPE 5 — Arrondir au 100€ inférieur
+
+Fourchette : min = prixConseille - 500€, max = prixConseille + 300€
+
+==============================================================
+  ESTIMATION DES FRAIS DE REMISE EN ÉTAT
+==============================================================
+Estimer selon l'état déclaré :
+  Excellent  : 300-500€ (révision + préparation)
+  Bon        : 500-900€ (révision + petits travaux)
+  Correct    : 900-1800€ (travaux visibles + révision)
+  À rénover  : 1800-4000€ (carrosserie + mécanique)
+
+Ajuster si observations spécifiques mentionnées.
+
+==============================================================
+  FORMAT DE SORTIE — JSON STRICT
+==============================================================
+INSTRUCTION ABSOLUE : Répondre UNIQUEMENT avec le JSON ci-dessous.
+Aucun texte avant, aucun texte après, aucun backtick markdown.
+
+{
+  "marcheObserve": {
+    "prixMin": 0,
+    "prixMax": 0,
+    "prixMedian": 0,
+    "prixRevente": 0,
+    "nombreAnnonces": 0,
+    "nombreAnnoncesProf": 0,
+    "tendance": "stable",
+    "liquidite": "normale",
+    "sources": [],
+    "commentaireSourcing": ""
+  },
+  "recommandationRachat": {
+    "prixConseille": 0,
+    "prixRachatMin": 0,
+    "prixRachatMax": 0,
+    "margeEstimee": 0,
+    "margePercent": 0,
+    "fraisRemiseEnEtat": 0,
+    "detailCalcul": "",
+    "argumentaire": ""
+  },
+  "pointsVigilance": {
+    "mecanique": [],
+    "carrosserie": [],
+    "administratif": [],
+    "marche": [],
+    "specifiques": []
+  },
+  "synthese": "",
+  "qualiteDonnees": "bonne"
+}
+
+Champs :
+- tendance       : "hausse" | "stable" | "baisse"
+- liquidite      : "elevee" | "normale" | "faible"
+- detailCalcul   : description étape par étape du calcul appliqué
+- argumentaire   : 2-3 phrases pour justifier le prix au vendeur
+- qualiteDonnees : "bonne" | "limitee" | "insuffisante" selon nb annonces`;
+
+// ─── Handler POST ────────────────────────────────────────────────────────────
+export async function POST(req: NextRequest) {
   try {
     const session = await requireAuth();
 
-    const body = await request.json();
+    const body = await req.json();
     const {
       marque,
       modele,
@@ -37,192 +166,199 @@ export async function POST(request: NextRequest) {
       kilometrage,
       carburant,
       boite,
-      version,
-      couleur,
-      nbPortes,
-      puissance,
       etat,
-      carnet,
-      accident,
-      commentaire,
+      carnetEntretien,
+      historiqueAccident,
       options,
+      observations,
     } = body;
 
-    if (!marque || !modele || !annee || !kilometrage || !carburant || !boite) {
+    if (!marque || !modele || !annee || !kilometrage) {
       return NextResponse.json(
-        { error: "Données véhicule incomplètes" },
+        {
+          error:
+            "Champs obligatoires manquants : marque, modèle, année, kilométrage",
+        },
         { status: 400 },
       );
     }
 
-    const systemPrompt = `Tu es un expert en évaluation automobile pour un mandataire automobile professionnel (VL Automobiles, basé à Nantes).
+    const anneeInt = parseInt(annee);
+    const kmInt = parseInt(kilometrage);
 
-INSTRUCTION ABSOLUE : Tu dois répondre UNIQUEMENT avec un objet JSON valide. Aucun texte avant, aucun texte après, aucune explication, aucune introduction. Juste le JSON brut.
+    // ── ÉTAPE 1 : Collecte parallèle des deux sources ─────────────────────────
+    console.log(
+      `[Rachat] Collecte marché pour ${marque} ${modele} ${annee} ${kmInt}km`,
+    );
 
-Ton rôle :
-1. Rechercher des annonces similaires sur LeBonCoin, La Centrale, AutoScout24, Largus pour analyser les prix du marché
-2. Calculer une recommandation de prix de rachat favorable à la marge
-3. Lister des points de vigilance avant rachat
+    const [annoncesAutoScout, annoncesLaCentrale] = await Promise.allSettled([
+      scrapeAutoScout24({
+        marque,
+        modele,
+        annee: anneeInt,
+        kilometrage: kmInt,
+      }),
+      scrapeLaCentrale({ marque, modele, annee: anneeInt, kilometrage: kmInt }),
+    ]);
 
-Règles métier pour le prix de rachat :
-- Marge brute cible : 15% à 25% du prix de revente estimé
-- Décotes cumulables : kilométrage > 100 000 km (-5%), accident déclaré (-8%), carnet incomplet (-3%), état Correct (-5%), état À rénover (-15%), liquidité faible (-5%)
-- Intégrer les frais de remise en état dans le calcul
-- Toujours proposer prixMin, prixMax et prixConseille
+    const autoScoutData: AnnonceScrappee[] =
+      annoncesAutoScout.status === "fulfilled" ? annoncesAutoScout.value : [];
+    const laCentraleData: AnnonceScrappee[] =
+      annoncesLaCentrale.status === "fulfilled" ? annoncesLaCentrale.value : [];
 
-Structure JSON OBLIGATOIRE (respecter exactement les types) :
-{
-  "marche": {
-    "prixMin": 0,
-    "prixMax": 0,
-    "prixMedian": 0,
-    "nbAnnonces": "string",
-    "tendance": "stable",
-    "liquidite": "normale",
-    "sources": ["string"],
-    "resume": "string"
-  },
-  "rachat": {
-    "prixMin": 0,
-    "prixMax": 0,
-    "prixConseille": 0,
-    "margeEstimee": "string",
-    "fraisRemiseEnEtat": 0,
-    "explication": "string"
-  },
-  "vigilance": {
-    "mecanique": ["string"],
-    "carrosserie": ["string"],
-    "administratif": ["string"],
-    "marche": ["string"],
-    "specifiques": ["string"]
-  },
-  "synthese": "string"
-}
+    const totalAnnonces = autoScoutData.length + laCentraleData.length;
 
-Valeurs autorisées : tendance = "stable"|"baisse"|"hausse" / liquidite = "forte"|"normale"|"faible"
-Tous les prix sont des entiers en euros (pas de décimales, pas de symbole €).`;
+    console.log(
+      `[Rachat] AutoScout24: ${autoScoutData.length} annonces | La Centrale: ${laCentraleData.length} annonces`,
+    );
 
-    const userMessage = `Recherche des annonces similaires puis analyse ce véhicule pour un rachat. Réponds uniquement en JSON.
+    // ── ÉTAPE 2 : Construction du prompt avec données structurées ─────────────
+    const sourcesDisponibles: string[] = [];
+    if (autoScoutData.length > 0) sourcesDisponibles.push("AutoScout24");
+    if (laCentraleData.length > 0) sourcesDisponibles.push("La Centrale");
 
-VÉHICULE
-- Marque : ${marque}
-- Modèle : ${modele}
-- Version / Finition : ${version || "Non précisée"}
-- Année : ${annee}
-- Kilométrage : ${Number(kilometrage).toLocaleString("fr-FR")} km
-- Carburant : ${carburant}
-- Boîte : ${boite}
-- Couleur : ${couleur || "Non précisée"}
-- Nombre de portes : ${nbPortes || "Non précisé"}
-- Puissance : ${puissance ? puissance + " ch" : "Non précisée"}
+    const userPrompt = `Analyse ce véhicule et donne une recommandation de rachat basée sur les données de marché ci-dessous.
 
-ÉTAT DU VÉHICULE
-- État général : ${etat || "Non précisé"}
-- Carnet d'entretien : ${carnet || "Non précisé"}
-- Historique accident : ${accident || "Non précisé"}
-- Options : ${options?.length > 0 ? options.join(", ") : "Aucune"}
-- Observations : ${commentaire || "Aucune"}`;
+═══════════════════════════════════════
+VÉHICULE À ANALYSER
+═══════════════════════════════════════
+Marque / Modèle  : ${marque} ${modele}
+Année            : ${anneeInt}
+Kilométrage      : ${kmInt.toLocaleString("fr-FR")} km
+Carburant        : ${carburant || "Non précisé"}
+Boîte            : ${boite || "Non précisée"}
+État général     : ${etat || "Non précisé"}
+Carnet entretien : ${carnetEntretien || "Non précisé"}
+Historique accid.: ${historiqueAccident || "Non précisé"}
+Options/Équip.   : ${options || "Non précisé"}
+Observations     : ${observations || "Aucune"}
 
-    const response = await client.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 2000,
-      system: systemPrompt,
-      tools: [
-        {
-          type: "web_search_20250305",
-          name: "web_search",
-          max_uses: 3,
-        } as unknown as Anthropic.Tool,
-      ],
+═══════════════════════════════════════
+DONNÉES DE MARCHÉ — AutoScout24 (${autoScoutData.length} annonces)
+═══════════════════════════════════════
+${formatAnnoncesForPrompt(autoScoutData)}
+
+═══════════════════════════════════════
+DONNÉES DE MARCHÉ — La Centrale (${laCentraleData.length} annonces)
+═══════════════════════════════════════
+${formatAnnoncesForPrompt(laCentraleData)}
+
+═══════════════════════════════════════
+CONTEXTE
+═══════════════════════════════════════
+Total annonces disponibles : ${totalAnnonces}
+Sources actives            : ${sourcesDisponibles.join(", ") || "Aucune"}
+${totalAnnonces < 5 ? '⚠️ Données limitées — préciser "qualiteDonnees": "limitee" dans la réponse' : ""}
+${totalAnnonces === 0 ? '⚠️ Aucune donnée collectée — baser l\'analyse sur ta connaissance du marché et préciser "qualiteDonnees": "insuffisante"' : ""}
+
+Retourne uniquement le JSON de recommandation.`;
+
+    // ── ÉTAPE 3 : Appel Sonnet SANS web_search ────────────────────────────────
+    // Pas de tools = pas de web_search = coût maîtrisé
+    const response = await anthropic.messages.create({
+      model: "claude-sonnet-4-5-20250929",
+      max_tokens: 2048, // Limité — le JSON de sortie n'a pas besoin de plus
+      system: SYSTEM_PROMPT,
       messages: [
         {
           role: "user",
-          content: userMessage,
+          content: userPrompt,
         },
       ],
     });
 
+    // Extraction texte
     const textContent = response.content
       .filter((block) => block.type === "text")
-      .map((block) => (block as { type: "text"; text: string }).text)
-      .join("");
+      .map((block) => (block as Anthropic.TextBlock).text)
+      .join("\n");
 
+    if (!textContent.trim()) {
+      throw new Error("La réponse de l'IA est vide");
+    }
+
+    // Parsing JSON
+    let analysisData;
+    try {
+      const jsonStr = extractJSON(textContent);
+      analysisData = JSON.parse(jsonStr);
+    } catch (parseError) {
+      console.error("Erreur parsing JSON IA:", parseError);
+      console.error("Réponse brute:", textContent.substring(0, 500));
+      throw new Error("Impossible de parser la réponse de l'IA. Réessayez.");
+    }
+
+    // ── ÉTAPE 4 : Sauvegarde BDD ──────────────────────────────────────────────
+    const estimation = await prisma.rachatEstimation.create({
+      data: {
+        // Véhicule
+        marque,
+        modele,
+        annee: anneeInt,
+        kilometrage: kmInt,
+        carburant: carburant || null,
+        boite: boite || null,
+        etat: etat || null,
+        carnet: carnetEntretien || null,
+        accident: historiqueAccident || null,
+        options: options || null,
+        commentaire: observations || null,
+
+        // Marché — Int selon schéma
+        marchePrixMin: parseInt(analysisData.marcheObserve?.prixMin || 0),
+        marchePrixMax: parseInt(analysisData.marcheObserve?.prixMax || 0),
+        marchePrixMedian: parseInt(analysisData.marcheObserve?.prixMedian || 0),
+        marcheTendance: String(analysisData.marcheObserve?.tendance || "stable"),
+        marcheLiquidite: String(analysisData.marcheObserve?.liquidite || "normale"),
+        marcheResume: String(analysisData.marcheObserve?.commentaireSourcing || ""),
+
+        // Rachat — Int sauf rachatMargeEstimee qui est String selon schéma
+        rachatPrixConseille: parseInt(analysisData.recommandationRachat?.prixConseille || 0),
+        rachatPrixMin: parseInt(analysisData.recommandationRachat?.prixRachatMin || 0),
+        rachatPrixMax: parseInt(analysisData.recommandationRachat?.prixRachatMax || 0),
+        rachatMargeEstimee: String(analysisData.recommandationRachat?.margeEstimee || 0),
+        rachatFraisRemiseEnEtat: parseInt(analysisData.recommandationRachat?.fraisRemiseEnEtat || 0),
+        rachatExplication:
+          String(analysisData.recommandationRachat?.detailCalcul || ""),
+        vigilance: analysisData.pointsVigilance || {},
+        synthese: analysisData.synthese || "",
+
+        // Admin
+        adminId: session.user.id,
+        adminName: session.user.name || "Admin",
+      },
+    });
+
+    // Log coût estimé (informatif)
+    const inputTokens = response.usage?.input_tokens || 0;
+    const outputTokens = response.usage?.output_tokens || 0;
+    const coutEstime = (inputTokens * 3 + outputTokens * 15) / 1_000_000;
     console.log(
-      "[API RACHAT] Réponse brute Claude :",
-      textContent.slice(0, 300),
+      `[Rachat] Tokens: ${inputTokens} input / ${outputTokens} output — coût estimé: $${coutEstime.toFixed(4)}`,
     );
 
-    const jsonString = extractJSON(textContent);
-    const analysis = JSON.parse(jsonString);
-
-    // ── Sauvegarde en base de données ─────────────────────────────────────────
-    try {
-      await prisma.rachatEstimation.create({
-        data: {
-          // Véhicule
-          marque,
-          modele,
-          version: version || null,
-          annee: Number(annee),
-          kilometrage: Number(kilometrage),
-          carburant,
-          boite,
-          couleur: couleur || null,
-          puissance: puissance ? `${puissance} ch` : null,
-          // État
-          etat: etat || null,
-          carnet: carnet || null,
-          accident: accident || null,
-          options: options || [],
-          commentaire: commentaire || null,
-          // Résultats marché
-          marchePrixMin: analysis.marche.prixMin,
-          marchePrixMax: analysis.marche.prixMax,
-          marchePrixMedian: analysis.marche.prixMedian,
-          marcheTendance: analysis.marche.tendance,
-          marcheLiquidite: analysis.marche.liquidite,
-          marcheResume: analysis.marche.resume,
-          // Recommandation rachat
-          rachatPrixMin: analysis.rachat.prixMin,
-          rachatPrixMax: analysis.rachat.prixMax,
-          rachatPrixConseille: analysis.rachat.prixConseille,
-          rachatMargeEstimee: analysis.rachat.margeEstimee,
-          rachatFraisRemiseEnEtat: analysis.rachat.fraisRemiseEnEtat,
-          rachatExplication: analysis.rachat.explication,
-          // Vigilance
-          vigilance: analysis.vigilance,
-          // Synthèse
-          synthese: analysis.synthese,
-          // Admin
-          adminId: (session as { user?: { id?: string } })?.user?.id || null,
-          adminName:
-            (session as { user?: { name?: string } })?.user?.name || null,
-        },
-      });
-      console.log("[API RACHAT] Estimation sauvegardée en BDD");
-    } catch (dbError) {
-      // On ne bloque pas la réponse si la sauvegarde échoue
-      console.error(
-        "[API RACHAT] Erreur sauvegarde BDD (non bloquant):",
-        dbError,
-      );
-    }
-    // ─────────────────────────────────────────────────────────────────────────
-
-    return NextResponse.json({ success: true, analysis });
+    return NextResponse.json({
+      success: true,
+      estimationId: estimation.id,
+      data: analysisData,
+      meta: {
+        annoncesCollectees: totalAnnonces,
+        sources: sourcesDisponibles,
+        coutEstime: `$${coutEstime.toFixed(4)}`,
+      },
+    });
   } catch (error) {
-    console.error("[API RACHAT] Erreur analyse:", error);
+    console.error("Erreur analyse rachat:", error);
 
-    if (error instanceof SyntaxError) {
-      return NextResponse.json(
-        { error: "Erreur de parsing de la réponse IA" },
-        { status: 500 },
-      );
+    if (error instanceof Error && error.message.includes("401")) {
+      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
 
     return NextResponse.json(
-      { error: "Erreur lors de l'analyse du marché" },
+      {
+        error: "Erreur lors de l'analyse",
+        details: error instanceof Error ? error.message : "Erreur inconnue",
+      },
       { status: 500 },
     );
   }

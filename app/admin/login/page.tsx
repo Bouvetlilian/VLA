@@ -9,8 +9,10 @@
 import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 
-export default function AdminLoginPage() {
+// ─── Contenu de la page (utilise useSearchParams) ────────────────────────────
+function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl") || "/admin";
@@ -28,9 +30,7 @@ export default function AdminLoginPage() {
     setLoading(true);
 
     try {
-      // Si on n'est pas encore en mode 2FA, vérifier d'abord si le 2FA est requis
       if (!needs2FA) {
-        // Appeler l'API pour vérifier si le 2FA est activé
         const checkResponse = await fetch("/api/auth/check-2fa", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -45,7 +45,6 @@ export default function AdminLoginPage() {
           return;
         }
 
-        // Si le 2FA est requis, afficher le champ
         if (checkData.requires2FA) {
           setNeeds2FA(true);
           setError("");
@@ -54,14 +53,8 @@ export default function AdminLoginPage() {
         }
       }
 
-      // Si on arrive ici, soit le 2FA n'est pas requis, soit on a déjà le code
-      // Préparer les credentials
-      const credentials: Record<string, string> = {
-        email,
-        password,
-      };
+      const credentials: Record<string, string> = { email, password };
 
-      // Ajouter le token 2FA si on est en mode 2FA
       if (needs2FA && token2FA) {
         credentials.token2FA = token2FA;
       }
@@ -71,13 +64,11 @@ export default function AdminLoginPage() {
         redirect: false,
       });
 
-      console.log("Résultat signIn:", result); // Debug
+      console.log("Résultat signIn:", result);
 
       if (result?.error) {
-        // Gérer les erreurs de signIn
         setError(result.error === "Configuration" ? "Code 2FA incorrect" : result.error);
       } else if (result?.ok) {
-        // Connexion réussie
         router.push(callbackUrl);
         router.refresh();
         return;
@@ -162,7 +153,8 @@ export default function AdminLoginPage() {
                 {/* Info utilisateur */}
                 <div className="mb-4 p-4 rounded-xl bg-vla-beige">
                   <p className="text-sm font-semibold text-gray-600">
-                    Connecté en tant que <span className="font-black text-vla-black">{email}</span>
+                    Connecté en tant que{" "}
+                    <span className="font-black text-vla-black">{email}</span>
                   </p>
                 </div>
 
@@ -249,5 +241,20 @@ export default function AdminLoginPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+// ─── Page exportée — wrapper Suspense obligatoire pour useSearchParams ────────
+export default function AdminLoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-[#F4EDDF] flex items-center justify-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#FF8633]" />
+        </div>
+      }
+    >
+      <LoginContent />
+    </Suspense>
   );
 }

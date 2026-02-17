@@ -231,7 +231,7 @@ export default function HistoriqueRachatPage() {
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {estimations.map((e) => (
-                    <tr key={e.id} className="hover:bg-gray-50 transition-colors">
+                    <tr key={e.id} className="hover:bg-gray-50 transition-colors cursor-pointer" onClick={() => window.location.href = `/admin/rachat/historique/${e.id}`}>
                       {/* Véhicule */}
                       <td className="px-6 py-4">
                         <div>

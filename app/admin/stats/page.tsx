@@ -23,7 +23,12 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
-import { formatPrice, formatRelativeDate, translateStatus, getStatusBadgeClass } from "@/lib/utils/format";
+import {
+  formatPrice,
+  formatRelativeDate,
+  translateStatus,
+  getStatusBadgeClass,
+} from "@/lib/utils/format";
 
 type StatsData = {
   kpis: {
@@ -98,7 +103,9 @@ export default function StatsPage() {
       <div className="p-6 max-w-7xl mx-auto">
         <div className="bg-white rounded-2xl p-12 text-center shadow-lg">
           <div className="w-12 h-12 border-4 border-vla-orange border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-gray-500 font-semibold">Chargement des statistiques...</p>
+          <p className="text-gray-500 font-semibold">
+            Chargement des statistiques...
+          </p>
         </div>
       </div>
     );
@@ -108,7 +115,9 @@ export default function StatsPage() {
     return (
       <div className="p-6 max-w-7xl mx-auto">
         <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-12 text-center">
-          <p className="text-red-600 font-bold">Erreur lors du chargement des statistiques</p>
+          <p className="text-red-600 font-bold">
+            Erreur lors du chargement des statistiques
+          </p>
         </div>
       </div>
     );
@@ -135,20 +144,30 @@ export default function StatsPage() {
         </div>
 
         <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-2xl p-6 text-white shadow-lg">
-          <p className="text-sm font-bold opacity-90 mb-1">Taux de Conversion</p>
-          <p className="text-4xl font-black mb-2">{stats.kpis.conversionRate}%</p>
-          <p className="text-xs opacity-75">{stats.kpis.treatedLeads} leads traités</p>
+          <p className="text-sm font-bold opacity-90 mb-1">
+            Taux de Conversion
+          </p>
+          <p className="text-4xl font-black mb-2">
+            {stats.kpis.conversionRate}%
+          </p>
+          <p className="text-xs opacity-75">
+            {stats.kpis.treatedLeads} leads traités
+          </p>
         </div>
 
         <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl p-6 text-white shadow-lg">
           <p className="text-sm font-bold opacity-90 mb-1">Véhicules Actifs</p>
-          <p className="text-4xl font-black mb-2">{stats.kpis.activeVehicles}</p>
+          <p className="text-4xl font-black mb-2">
+            {stats.kpis.activeVehicles}
+          </p>
           <p className="text-xs opacity-75">Publiés sur le site</p>
         </div>
 
         <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-2xl p-6 text-white shadow-lg">
           <p className="text-sm font-bold opacity-90 mb-1">Activité Récente</p>
-          <p className="text-4xl font-black mb-2">{stats.timeline[3]?.total || 0}</p>
+          <p className="text-4xl font-black mb-2">
+            {stats.timeline[3]?.total || 0}
+          </p>
           <p className="text-xs opacity-75">Leads cette semaine</p>
         </div>
       </div>
@@ -206,7 +225,9 @@ export default function StatsPage() {
                 cx="50%"
                 cy="50%"
                 labelLine={false}
-                label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
+                label={({ name, percent }) =>
+                  `${name} (${((percent ?? 0) * 100).toFixed(0)}%)`
+                }
                 outerRadius={100}
                 fill="#8884d8"
                 dataKey="value"
@@ -241,7 +262,12 @@ export default function StatsPage() {
                   fontWeight: "600",
                 }}
               />
-              <Bar dataKey="count" name="Demandes" fill="#FF8633" radius={[0, 8, 8, 0]} />
+              <Bar
+                dataKey="count"
+                name="Demandes"
+                fill="#FF8633"
+                radius={[0, 8, 8, 0]}
+              />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -281,7 +307,9 @@ export default function StatsPage() {
         </h2>
 
         {stats.topVehicles.length === 0 ? (
-          <p className="text-center text-gray-500 py-8">Aucun véhicule avec des leads pour le moment</p>
+          <p className="text-center text-gray-500 py-8">
+            Aucun véhicule avec des leads pour le moment
+          </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -306,14 +334,22 @@ export default function StatsPage() {
               </thead>
               <tbody>
                 {stats.topVehicles.map((vehicle, index) => (
-                  <tr key={vehicle.id} className="border-t border-gray-100 hover:bg-vla-beige/30 transition-colors">
+                  <tr
+                    key={vehicle.id}
+                    className="border-t border-gray-100 hover:bg-vla-beige/30 transition-colors"
+                  >
                     <td className="py-4 px-4">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-white ${
-                        index === 0 ? "bg-yellow-500" :
-                        index === 1 ? "bg-gray-400" :
-                        index === 2 ? "bg-orange-400" :
-                        "bg-gray-300"
-                      }`}>
+                      <div
+                        className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-white ${
+                          index === 0
+                            ? "bg-yellow-500"
+                            : index === 1
+                              ? "bg-gray-400"
+                              : index === 2
+                                ? "bg-orange-400"
+                                : "bg-gray-300"
+                        }`}
+                      >
                         {index + 1}
                       </div>
                     </td>
@@ -328,7 +364,8 @@ export default function StatsPage() {
                     </td>
                     <td className="py-4 px-4">
                       <span className="px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-sm font-bold">
-                        {vehicle.leadsCount} demande{vehicle.leadsCount > 1 ? "s" : ""}
+                        {vehicle.leadsCount} demande
+                        {vehicle.leadsCount > 1 ? "s" : ""}
                       </span>
                     </td>
                     <td className="py-4 px-4 text-right">
@@ -372,7 +409,9 @@ export default function StatsPage() {
                     {formatRelativeDate(lead.createdAt)}
                   </p>
                 </div>
-                <span className={`px-3 py-1 rounded-full text-xs font-bold ${getStatusBadgeClass(lead.status)}`}>
+                <span
+                  className={`px-3 py-1 rounded-full text-xs font-bold ${getStatusBadgeClass(lead.status)}`}
+                >
                   {translateStatus(lead.status)}
                 </span>
               </Link>
@@ -403,7 +442,9 @@ export default function StatsPage() {
                     {formatRelativeDate(lead.createdAt)}
                   </p>
                 </div>
-                <span className={`px-3 py-1 rounded-full text-xs font-bold ${getStatusBadgeClass(lead.status)}`}>
+                <span
+                  className={`px-3 py-1 rounded-full text-xs font-bold ${getStatusBadgeClass(lead.status)}`}
+                >
                   {translateStatus(lead.status)}
                 </span>
               </Link>

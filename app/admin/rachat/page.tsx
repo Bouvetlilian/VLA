@@ -210,7 +210,38 @@ export default function RachatPage() {
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur serveur");
-      setAnalysis(data.analysis);
+
+      // Mapping de la structure retournée par la route vers l'interface MarketAnalysis
+      const raw = data.data;
+      const mapped: MarketAnalysis = {
+        marche: {
+          prixMin: raw.marcheObserve?.prixMin ?? 0,
+          prixMax: raw.marcheObserve?.prixMax ?? 0,
+          prixMedian: raw.marcheObserve?.prixMedian ?? 0,
+          nbAnnonces: String(raw.marcheObserve?.nombreAnnonces ?? 0),
+          tendance: raw.marcheObserve?.tendance ?? "stable",
+          liquidite: raw.marcheObserve?.liquidite === "elevee" ? "forte" : (raw.marcheObserve?.liquidite ?? "normale"),
+          sources: raw.marcheObserve?.sources ?? [],
+          resume: raw.marcheObserve?.commentaireSourcing ?? "",
+        },
+        rachat: {
+          prixMin: raw.recommandationRachat?.prixRachatMin ?? 0,
+          prixMax: raw.recommandationRachat?.prixRachatMax ?? 0,
+          prixConseille: raw.recommandationRachat?.prixConseille ?? 0,
+          margeEstimee: String(raw.recommandationRachat?.margeEstimee ?? 0),
+          fraisRemiseEnEtat: raw.recommandationRachat?.fraisRemiseEnEtat ?? 0,
+          explication: raw.recommandationRachat?.detailCalcul ?? "",
+        },
+        vigilance: {
+          mecanique: raw.pointsVigilance?.mecanique ?? [],
+          carrosserie: raw.pointsVigilance?.carrosserie ?? [],
+          administratif: raw.pointsVigilance?.administratif ?? [],
+          marche: raw.pointsVigilance?.marche ?? [],
+          specifiques: raw.pointsVigilance?.specifiques ?? [],
+        },
+        synthese: raw.synthese ?? "",
+      };
+      setAnalysis(mapped);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Une erreur est survenue");
     } finally {
