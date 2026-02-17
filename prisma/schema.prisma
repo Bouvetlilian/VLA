@@ -266,3 +266,62 @@ model NotificationLog {
   @@index([createdAt])
   @@map("notification_logs")
 }
+// ─────────────────────────────────────────────────────────────────────────────
+// RACHAT ESTIMATION — Historique des cotations
+// ─────────────────────────────────────────────────────────────────────────────
+
+model RachatEstimation {
+  id        String   @id @default(cuid())
+
+  // Véhicule analysé
+  marque    String
+  modele    String
+  version   String?
+  annee     Int
+  kilometrage Int
+  carburant String
+  boite     String
+  couleur   String?
+  puissance String?
+
+  // État déclaré
+  etat      String?
+  carnet    String?
+  accident  String?
+  options   String[] // Array PostgreSQL
+  commentaire String? @db.Text
+
+  // Résultats marché
+  marchePrixMin    Int
+  marchePrixMax    Int
+  marchePrixMedian Int
+  marcheTendance   String
+  marcheLiquidite  String
+  marcheResume     String @db.Text
+
+  // Recommandation rachat
+  rachatPrixMin       Int
+  rachatPrixMax       Int
+  rachatPrixConseille Int
+  rachatMargeEstimee  String
+  rachatFraisRemiseEnEtat Int
+  rachatExplication   String @db.Text
+
+  // Vigilance (stocké en JSON)
+  vigilance Json
+
+  // Synthèse
+  synthese String @db.Text
+
+  // Admin qui a fait l'estimation
+  adminId   String?
+  adminName String?
+
+  // Audit
+  createdAt DateTime @default(now())
+
+  @@index([marque])
+  @@index([createdAt])
+  @@map("rachat_estimations")
+}
+
