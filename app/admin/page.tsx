@@ -1,320 +1,330 @@
 // app/admin/page.tsx
-// ─────────────────────────────────────────────────────────────────────────────
-// Dashboard administrateur VL Automobiles
-// Vue d'ensemble avec KPIs, graphique et derniers leads
-// ─────────────────────────────────────────────────────────────────────────────
+"use client";
 
-import { auth } from "@/lib/auth";
-import { redirect } from "next/navigation";
+import { useState, useEffect } from "react";
 import StatsCard from "@/components/admin/StatsCard";
 import Link from "next/link";
 import { formatRelativeDate, translateStatus, getStatusBadgeClass } from "@/lib/utils/format";
 
-// Types pour les données de l'API
-type DashboardStats = {
-  vehiclesCount: {
+type ApiStatsResponse = {
+  vehicles: {
     total: number;
-    published: number;
-    draft: number;
-    sold: number;
+    PUBLISHED: number;
+    DRAFT: number;
+    SOLD: number;
+    RESERVED: number;
   };
-  leadsCount: {
-    buy: {
-      total: number;
-      new: number;
-      inProgress: number;
-      treated: number;
-    };
-    sell: {
-      total: number;
-      new: number;
-      inProgress: number;
-      treated: number;
-    };
+  buyLeads: {
+    total: number;
+    NEW: number;
+    IN_PROGRESS: number;
+    TREATED: number;
+    ARCHIVED: number;
   };
-  recentLeads: Array<{
-    id: string;
-    type: "buy" | "sell";
-    prenom: string;
-    telephone: string;
-    status: string;
-    createdAt: string;
-    vehicleInfo?: string; // Pour buy leads: "BMW Série 3"
-  }>;
+  sellLeads: {
+    total: number;
+    NEW: number;
+    IN_PROGRESS: number;
+    TREATED: number;
+    ARCHIVED: number;
+  };
+  kpis: {
+    totalLeads: number;
+    treatedLeads: number;
+    conversionRate: number;
+    activeVehicles: number;
+  };
+  recentActivity: {
+    buyLeads: Array<{
+      id: string;
+      prenom: string;
+      nom: string;
+      status: string;
+      createdAt: string;
+      marque?: string;
+      modele?: string;
+    }>;
+    sellLeads: Array<{
+      id: string;
+      prenom: string;
+      nom: string;
+      status: string;
+      createdAt: string;
+      marque?: string;
+      modele?: string;
+    }>;
+  };
 };
 
-async function getDashboardStats(): Promise<DashboardStats> {
-  // Retourner des données par défaut pour l'instant
-  // L'API /api/admin/stats sera utilisée quand elle sera disponible
-  return {
-    vehiclesCount: { total: 0, published: 0, draft: 0, sold: 0 },
-    leadsCount: {
-      buy: { total: 0, new: 0, inProgress: 0, treated: 0 },
-      sell: { total: 0, new: 0, inProgress: 0, treated: 0 },
-    },
-    recentLeads: [],
-  };
-}
+export default function AdminDashboard() {
+  const [apiData, setApiData] = useState<ApiStatsResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
-export default async function AdminDashboard() {
-  const session = await auth();
+  useEffect(() => {
+    fetch("/api/admin/stats")
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((data) => setApiData(data))
+      .catch((err) => {
+        console.error("[Dashboard] Erreur stats:", err);
+        setError(true);
+      })
+      .finally(() => setLoading(false));
+  }, []);
 
-  if (!session) {
-    redirect("/admin/login");
+  const vehicles = apiData?.vehicles ?? { total: 0, PUBLISHED: 0, DRAFT: 0, SOLD: 0, RESERVED: 0 };
+  const buyLeads = apiData?.buyLeads ?? { total: 0, NEW: 0, IN_PROGRESS: 0, TREATED: 0, ARCHIVED: 0 };
+  const sellLeads = apiData?.sellLeads ?? { total: 0, NEW: 0, IN_PROGRESS: 0, TREATED: 0, ARCHIVED: 0 };
+  const totalNewLeads = (buyLeads.NEW ?? 0) + (sellLeads.NEW ?? 0);
+
+  const recentLeads = [
+    ...(apiData?.recentActivity?.buyLeads ?? []).map((l) => ({
+      ...l,
+      type: "buy" as const,
+      vehicleInfo: l.marque && l.modele ? `${l.marque} ${l.modele}` : undefined,
+    })),
+    ...(apiData?.recentActivity?.sellLeads ?? []).map((l) => ({
+      ...l,
+      type: "sell" as const,
+      vehicleInfo: l.marque && l.modele ? `${l.marque} ${l.modele}` : undefined,
+    })),
+  ]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 6);
+
+  if (loading) {
+    return (
+      <div className="p-6 max-w-7xl mx-auto">
+        <div className="bg-white rounded-2xl p-12 text-center shadow-sm">
+          <div className="w-10 h-10 border-4 border-vla-orange border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-gray-500 font-semibold">Chargement du tableau de bord...</p>
+        </div>
+      </div>
+    );
   }
-
-  const stats = await getDashboardStats();
-
-  // Calculer les leads totaux NEW
-  const totalNewLeads = stats.leadsCount.buy.new + stats.leadsCount.sell.new;
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
       {/* Header */}
       <div className="mb-8">
         <h1 className="font-black text-3xl text-vla-black mb-2">
-          Bienvenue, {session.user.name} 👋
+          Tableau de bord 👋
         </h1>
         <p className="text-gray-500 font-semibold">
           Voici un aperçu de votre activité
         </p>
       </div>
 
+      {/* Alerte si l'API n'a pas répondu */}
+      {error && !loading && (
+        <div className="mb-6 bg-red-50 border border-red-200 rounded-xl p-4">
+          <p className="text-red-700 font-semibold text-sm">
+            ⚠️ Impossible de charger les statistiques. Vérifiez votre connexion ou rechargez la page.
+          </p>
+        </div>
+      )}
+
       {/* Grid des KPIs */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        {/* Véhicules actifs */}
         <StatsCard
           label="Véhicules publiés"
-          value={stats.vehiclesCount.published}
+          value={vehicles.PUBLISHED}
+          icon={<svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>}
           color="orange"
-          icon={
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
-              />
-            </svg>
-          }
         />
-
-        {/* Nouveaux leads */}
         <StatsCard
-          label="Nouveaux leads"
+          label="Leads en attente"
           value={totalNewLeads}
+          icon={<svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>}
           color="blue"
-          icon={
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"
-              />
-            </svg>
-          }
         />
-
-        {/* Leads achat en cours */}
         <StatsCard
-          label="Demandes d'achat"
-          value={stats.leadsCount.buy.total}
-          color="green"
-          icon={
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"
-              />
-            </svg>
-          }
+          label="Leads achat"
+          value={buyLeads.total}
+          icon={<svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>}
+          color="orange"
         />
-
-        {/* Leads vente en cours */}
         <StatsCard
-          label="Demandes de vente"
-          value={stats.leadsCount.sell.total}
+          label="Leads vente"
+          value={sellLeads.total}
+          icon={<svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
           color="purple"
-          icon={
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
-          }
         />
       </div>
 
-      {/* Section leads récents */}
-      <div className="bg-white rounded-2xl p-6 shadow-lg">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="font-black text-xl text-vla-black">
-            Derniers leads
-          </h2>
+      {/* Résumé rapide */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        {/* Véhicules par statut */}
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+          <h2 className="font-black text-lg text-vla-black mb-4">Catalogue</h2>
+          <div className="space-y-3">
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-gray-600 font-semibold">Publiés</span>
+              <span className="font-black text-vla-orange">{vehicles.PUBLISHED}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-gray-600 font-semibold">Brouillons</span>
+              <span className="font-black text-gray-400">{vehicles.DRAFT}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-gray-600 font-semibold">Vendus</span>
+              <span className="font-black text-green-500">{vehicles.SOLD}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-gray-600 font-semibold">Réservés</span>
+              <span className="font-black text-blue-500">{vehicles.RESERVED}</span>
+            </div>
+            <div className="pt-2 border-t border-gray-100 flex justify-between items-center">
+              <span className="text-sm text-gray-500 font-semibold">Total</span>
+              <span className="font-black text-vla-black">{vehicles.total}</span>
+            </div>
+          </div>
           <Link
-            href="/admin/leads/buy"
-            className="text-sm font-bold text-vla-orange hover:underline"
+            href="/admin/vehicles"
+            className="mt-4 block text-center text-sm font-bold text-vla-orange hover:underline"
           >
-            Voir tout →
+            Gérer le catalogue →
           </Link>
         </div>
 
-        {stats.recentLeads.length === 0 ? (
-          <div className="text-center py-12">
-            <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-4">
-              <svg
-                className="w-8 h-8 text-gray-400"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"
-                />
-              </svg>
+        {/* Leads achat */}
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+          <h2 className="font-black text-lg text-vla-black mb-4">Leads achat</h2>
+          <div className="space-y-3">
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-gray-600 font-semibold">Nouveaux</span>
+              <span className="font-black text-vla-orange">{buyLeads.NEW}</span>
             </div>
-            <p className="text-gray-500 font-semibold">
-              Aucun lead pour le moment
-            </p>
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-gray-600 font-semibold">En cours</span>
+              <span className="font-black text-blue-500">{buyLeads.IN_PROGRESS}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-gray-600 font-semibold">Traités</span>
+              <span className="font-black text-green-500">{buyLeads.TREATED}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-gray-600 font-semibold">Archivés</span>
+              <span className="font-black text-gray-400">{buyLeads.ARCHIVED}</span>
+            </div>
+            <div className="pt-2 border-t border-gray-100 flex justify-between items-center">
+              <span className="text-sm text-gray-500 font-semibold">Total</span>
+              <span className="font-black text-vla-black">{buyLeads.total}</span>
+            </div>
           </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="text-left py-3 px-4 text-xs font-black uppercase text-gray-400">
-                    Type
-                  </th>
-                  <th className="text-left py-3 px-4 text-xs font-black uppercase text-gray-400">
-                    Prospect
-                  </th>
-                  <th className="text-left py-3 px-4 text-xs font-black uppercase text-gray-400">
-                    Téléphone
-                  </th>
-                  <th className="text-left py-3 px-4 text-xs font-black uppercase text-gray-400">
-                    Véhicule
-                  </th>
-                  <th className="text-left py-3 px-4 text-xs font-black uppercase text-gray-400">
-                    Statut
-                  </th>
-                  <th className="text-left py-3 px-4 text-xs font-black uppercase text-gray-400">
-                    Date
-                  </th>
-                  <th className="text-right py-3 px-4 text-xs font-black uppercase text-gray-400">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {stats.recentLeads.map((lead) => (
-                  <tr key={lead.id} className="border-b border-gray-100 hover:bg-vla-beige/30 transition-colors">
-                    <td className="py-4 px-4">
-                      <span
-                        className={`px-3 py-1 rounded-full text-xs font-bold ${
-                          lead.type === "buy"
-                            ? "bg-green-100 text-green-700"
-                            : "bg-purple-100 text-purple-700"
-                        }`}
-                      >
-                        {lead.type === "buy" ? "Achat" : "Vente"}
-                      </span>
-                    </td>
-                    <td className="py-4 px-4 font-semibold text-vla-black">
-                      {lead.prenom}
-                    </td>
-                    <td className="py-4 px-4 text-gray-600 font-mono text-sm">
-                      {lead.telephone}
-                    </td>
-                    <td className="py-4 px-4 text-gray-600 text-sm">
-                      {lead.vehicleInfo || "-"}
-                    </td>
-                    <td className="py-4 px-4">
-                      <span
-                        className={`px-3 py-1 rounded-full text-xs font-bold ${getStatusBadgeClass(lead.status)}`}
-                      >
-                        {translateStatus(lead.status)}
-                      </span>
-                    </td>
-                    <td className="py-4 px-4 text-gray-500 text-sm">
-                      {formatRelativeDate(lead.createdAt)}
-                    </td>
-                    <td className="py-4 px-4 text-right">
-                      <Link
-                        href={`/admin/leads/${lead.type}/${lead.id}`}
-                        className="text-sm font-bold text-vla-orange hover:underline"
-                      >
-                        Voir
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <Link
+            href="/admin/leads/buy"
+            className="mt-4 block text-center text-sm font-bold text-vla-orange hover:underline"
+          >
+            Voir les leads achat →
+          </Link>
+        </div>
+
+        {/* Leads vente */}
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+          <h2 className="font-black text-lg text-vla-black mb-4">Leads vente</h2>
+          <div className="space-y-3">
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-gray-600 font-semibold">Nouveaux</span>
+              <span className="font-black text-purple-500">{sellLeads.NEW}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-gray-600 font-semibold">En cours</span>
+              <span className="font-black text-blue-500">{sellLeads.IN_PROGRESS}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-gray-600 font-semibold">Traités</span>
+              <span className="font-black text-green-500">{sellLeads.TREATED}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-gray-600 font-semibold">Archivés</span>
+              <span className="font-black text-gray-400">{sellLeads.ARCHIVED}</span>
+            </div>
+            <div className="pt-2 border-t border-gray-100 flex justify-between items-center">
+              <span className="text-sm text-gray-500 font-semibold">Total</span>
+              <span className="font-black text-vla-black">{sellLeads.total}</span>
+            </div>
           </div>
-        )}
+          <Link
+            href="/admin/leads/sell"
+            className="mt-4 block text-center text-sm font-bold text-purple-500 hover:underline"
+          >
+            Voir les leads vente →
+          </Link>
+        </div>
       </div>
 
-      {/* Boutons rapides */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
-        <Link
-          href="/admin/vehicles/new"
-          className="bg-white rounded-2xl p-6 hover:shadow-lg transition-all group"
-        >
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-vla-orange/10 text-vla-orange flex items-center justify-center group-hover:bg-vla-orange group-hover:text-white transition-colors">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-            </div>
-            <div>
-              <p className="font-black text-vla-black">Ajouter un véhicule</p>
-              <p className="text-sm text-gray-500">Créer une nouvelle annonce</p>
-            </div>
+      {/* Derniers leads */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+          <h2 className="font-black text-lg text-vla-black">Activité récente</h2>
+          <div className="flex gap-3">
+            <Link
+              href="/admin/leads/buy"
+              className="text-sm font-bold text-vla-orange hover:underline"
+            >
+              Leads achat →
+            </Link>
+            <Link
+              href="/admin/leads/sell"
+              className="text-sm font-bold text-purple-500 hover:underline"
+            >
+              Leads vente →
+            </Link>
           </div>
-        </Link>
+        </div>
 
-        <Link
-          href="/admin/vehicles"
-          className="bg-white rounded-2xl p-6 hover:shadow-lg transition-all group"
-        >
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-500 flex items-center justify-center group-hover:bg-blue-500 group-hover:text-white transition-colors">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-              </svg>
-            </div>
-            <div>
-              <p className="font-black text-vla-black">Gérer les véhicules</p>
-              <p className="text-sm text-gray-500">Modifier le catalogue</p>
-            </div>
+        {recentLeads.length === 0 ? (
+          <div className="p-12 text-center text-gray-400 font-semibold">
+            Aucun lead pour l'instant
           </div>
-        </Link>
+        ) : (
+          <div className="divide-y divide-gray-50">
+            {recentLeads.map((lead) => (
+              <Link
+                key={`${lead.type}-${lead.id}`}
+                href={`/admin/leads/${lead.type}/${lead.id}`}
+                className="flex items-center gap-4 p-4 hover:bg-gray-50 transition-colors"
+              >
+                {/* Badge type */}
+                <span
+                  className={`shrink-0 inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${
+                    lead.type === "buy"
+                      ? "bg-orange-100 text-orange-700"
+                      : "bg-purple-100 text-purple-700"
+                  }`}
+                >
+                  {lead.type === "buy" ? "Achat" : "Vente"}
+                </span>
 
-        <Link
-          href="/admin/leads/buy"
-          className="bg-white rounded-2xl p-6 hover:shadow-lg transition-all group"
-        >
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-green-50 text-green-500 flex items-center justify-center group-hover:bg-green-500 group-hover:text-white transition-colors">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-              </svg>
-            </div>
-            <div>
-              <p className="font-black text-vla-black">Traiter les leads</p>
-              <p className="text-sm text-gray-500">Gérer les demandes</p>
-            </div>
+                {/* Infos */}
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-vla-black truncate">
+                    {lead.prenom} {lead.nom}
+                  </p>
+                  {lead.vehicleInfo && (
+                    <p className="text-sm text-gray-500 truncate">{lead.vehicleInfo}</p>
+                  )}
+                </div>
+
+                {/* Statut */}
+                <span
+                  className={`shrink-0 inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${getStatusBadgeClass(lead.status)}`}
+                >
+                  {translateStatus(lead.status)}
+                </span>
+
+                {/* Date */}
+                <span className="shrink-0 text-xs text-gray-400 font-semibold">
+                  {formatRelativeDate(lead.createdAt)}
+                </span>
+              </Link>
+            ))}
           </div>
-        </Link>
+        )}
       </div>
     </div>
   );
